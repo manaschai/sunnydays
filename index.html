@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SunnyDays — A Wholesome Life & Friendship Sim</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- Top Header -->
+  <header class="top-header">
+    <div class="brand-logo">
+      <span>🌻 SunnyDays</span>
+      <span class="brand-tag" style="background:#FEF3C7;color:#B45309;font-weight:800;">v1.0</span>
+      <span class="brand-tag">100% Wholesome Life & Friendship Sim</span>
+    </div>
+    <div class="header-controls">
+      <span id="save-status-pill" class="brand-tag" style="background:#DCFCE7;color:#15803D;">💾 Auto-Save Ready</span>
+      <button type="button" class="secondary-btn" onclick="manualSaveGame()">💾 Save Game</button>
+      <button type="button" class="secondary-btn" onclick="openSaveSlotsModal()">📂 Save Slots</button>
+      <button id="btn-continue-saved" class="secondary-btn hidden">▶ Continue Saved Life</button>
+      <button class="secondary-btn" onclick="resetToCreator()">✨ New Character</button>
+    </div>
+  </header>
+
+  <!-- SCREEN 1: CHARACTER CREATOR -->
+  <main id="creator-screen" class="creator-container">
+    <div class="creator-hero">
+      <h1>Start Your Wholesome Life Journey 🌈</h1>
+      <p>Grow from childhood to your golden years, join clubs, discover your dream career, and make lifelong friends who grow up right beside you!</p>
+    </div>
+
+    <div class="creator-grid">
+      <!-- Left: Avatar Customizer -->
+      <section class="creator-card">
+        <div class="avatar-preview-stage">
+          <div id="creator-avatar-preview"></div>
+          <div id="creator-age-preview-bar" class="age-preview-bar"></div>
+          <button type="button" class="secondary-btn" style="margin-top:8px" onclick="randomizeCreator()">🎲 Randomize Avatar</button>
+        </div>
+
+        <div class="form-group">
+          <label>Select Gender</label>
+          <div id="creator-gender-options" class="gender-toggle-row"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="creator-name-input">Your First Name</label>
+          <input id="creator-name-input" type="text" class="text-input" value="Sunny" maxlength="22" placeholder="Enter your name..." />
+        </div>
+
+        <div class="form-group">
+          <label>Skin Tone</label>
+          <div id="creator-skin-options" class="swatch-row"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Hair Style</label>
+          <div id="creator-hair-style-options" class="pill-row"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Hair Color</label>
+          <div id="creator-hair-color-options" class="swatch-row"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Outfit Style</label>
+          <div id="creator-outfit-options" class="pill-row"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Outfit Color</label>
+          <div id="creator-shirt-options" class="swatch-row"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Accessory</label>
+          <div id="creator-accessory-options" class="pill-row"></div>
+        </div>
+      </section>
+
+      <!-- Right: Hometown & Personality -->
+      <section class="creator-card">
+        <h3 style="margin-bottom:10px">🏡 Choose Your Cozy Hometown</h3>
+        <div id="creator-hometown-options" class="select-cards-grid"></div>
+
+        <h3 style="margin-bottom:10px">🌟 Choose Your Childhood Spark</h3>
+        <div id="creator-trait-options" class="select-cards-grid"></div>
+
+        <button type="button" class="start-life-btn" onclick="startNewLife()">
+          🌱 Begin My Life Story (Age 0) ➜
+        </button>
+      </section>
+    </div>
+  </main>
+
+  <!-- SCREEN 2: MAIN GAME DASHBOARD -->
+  <main id="game-screen" class="dashboard-layout hidden">
+    <!-- Left Column: Character Profile, Core Stats & Skills -->
+    <aside class="panel-card">
+      <div class="profile-top">
+        <div id="player-avatar-box"></div>
+        <button type="button" class="mini-style-btn" onclick="openRestyleModal()">👕 Customize Avatar</button>
+        <div id="player-name-heading" class="player-name">Sunny</div>
+        <div id="player-stage-badge" class="stage-badge">Age 0 • Little Sprout</div>
+        <div id="player-town-line" class="town-subline"></div>
+        <div class="savings-pill">🪙 Savings: <span id="player-money-badge">$15</span></div>
+        <div id="player-status-summary" class="status-pills-wrap"></div>
+      </div>
+
+      <div class="section-label">Core Wellbeing</div>
+      <div id="core-stats-container"></div>
+
+      <div class="section-label">Hobbies & Talents</div>
+      <div id="skills-container" class="skills-list"></div>
+
+      <div class="section-label" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;">
+        <span>🎯 Active Quests</span>
+        <button type="button" class="mini-style-btn" style="margin:0;padding:2px 8px;font-size:0.7rem;" onclick="switchTab('quests')">Quest Board ➜</button>
+      </div>
+      <div id="active-quests-sidebar" class="skills-list"></div>
+
+      <div class="section-label" style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;">
+        <span>🎒 My Inventory</span>
+        <button type="button" class="mini-style-btn" style="margin:0;padding:2px 8px;font-size:0.7rem;" onclick="switchTab('inventory')">Open All ➜</button>
+      </div>
+      <div id="birthday-items-container" class="skills-list"></div>
+    </aside>
+
+    <!-- Center Column: 2D Square World, Calendar/Energy Control & Story Log -->
+    <section>
+      <div class="center-action-bar">
+        <div id="energy-stars-display" class="energy-box"></div>
+        <div id="birthday-calendar-box" class="calendar-control-box"></div>
+      </div>
+
+      <!-- 2D SQUARE WORLD WITH AVATARS, MY ROOM & UNLOCKABLE PLACES -->
+      <div class="panel-card world-panel-card">
+        <div class="world-header-row">
+          <div>
+            <h3 id="world-view-title">🗺️ 2D Town Square & My Room (Walk with WASD / Arrows or Click!)</h3>
+            <div id="living-status-banner" class="living-status-pill">🏡 Living with Family (Ages 0–16)</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div class="world-mode-switcher">
+              <button type="button" id="btn-view-room" class="world-mode-btn" onclick="World2D.enterRoom('my-room')">🛏️ My Room</button>
+              <button type="button" id="btn-view-town" class="world-mode-btn active" onclick="World2D.switchView('town')">🗺️ Town Map</button>
+              <button type="button" class="world-mode-btn" onclick="openFurnitureShopModal()">🪑 Furniture</button>
+              <button type="button" class="world-mode-btn" onclick="switchTab('quests')">🎯 Quests</button>
+              <button type="button" class="world-mode-btn" onclick="switchTab('store')">🛒 Store</button>
+            </div>
+            <div id="places-unlocked-badge" class="places-count-badge">🔓 2 Places Unlocked</div>
+          </div>
+        </div>
+
+        <div id="quick-places-strip" class="quick-places-strip"></div>
+
+        <div id="world-2d-square" class="world-2d-square" onclick="World2D.handleSquareClick(event)"></div>
+
+        <div id="world-zone-bar" class="world-zone-bar"></div>
+        <div id="world-quest-tracker-bar" class="world-quest-tracker-bar"></div>
+      </div>
+
+      <div class="panel-card" style="margin-top:16px;">
+        <h3 style="margin-bottom:12px">📖 Your Year-by-Year Story Log</h3>
+        <div id="timeline-feed" class="timeline-scroll"></div>
+      </div>
+    </section>
+
+    <!-- Right Column: Quests, Friends, Inventory, Store, Activities, Career/School, Scrapbook -->
+    <aside class="panel-card">
+      <nav class="tabs-nav">
+        <button class="tab-btn active" data-tab="friends" onclick="switchTab('friends')">🤝 Friends</button>
+        <button class="tab-btn" data-tab="quests" onclick="switchTab('quests')">🎯 Quests</button>
+        <button class="tab-btn" data-tab="inventory" onclick="switchTab('inventory')">🎒 Inventory</button>
+        <button class="tab-btn" data-tab="store" onclick="switchTab('store')">🛒 Store</button>
+        <button class="tab-btn" data-tab="activities" onclick="switchTab('activities')">🎨 Activities</button>
+        <button class="tab-btn" data-tab="career" onclick="switchTab('career')">🏡 Life Path</button>
+        <button class="tab-btn" data-tab="scrapbook" onclick="switchTab('scrapbook')">📸 Scrapbook</button>
+      </nav>
+
+      <div id="right-tab-content"></div>
+    </aside>
+  </main>
+
+  <!-- Story Event & Gift Modal -->
+  <div id="event-modal" class="modal-backdrop hidden">
+    <div class="modal-card" id="event-modal-body"></div>
+  </div>
+
+  <!-- Toast Banner -->
+  <div id="toast-banner" class="toast-banner"></div>
+
+  <script src="avatar.js"></script>
+  <script src="data.js"></script>
+  <script src="world2d.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
