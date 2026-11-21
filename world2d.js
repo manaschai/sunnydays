@@ -145,6 +145,17 @@ const FIXED_WORLD_PLACES = [
     desc: 'Unlocks at Age 6 to visit, and at Age 21 you move in together! Sectional Couch, Gaming TV & Kitchen!',
     actionLabel: '🌟 Bestie Hangout (-15% Energy ⚡)',
     decor: ['🛋️', '🎮', '🥞']
+  },
+  {
+    id: 'gym',
+    name: 'Powerhouse Gym',
+    icon: '💪',
+    unlockAge: 0,
+    bg: '#FEF2F2', border: '#EF4444', roof: '#B91C1C',
+    roofStyle: 'plaza',
+    desc: 'Powerhouse Fitness Gym! Digital Treadmills, Barbell Bench Press, Dumbbell Rack, Boxing Bag & Smoothie Bar!',
+    actionLabel: '💪 Work Out at Gym (-12% Energy ⚡)',
+    decor: ['🏋️', '🏃', '🥊']
   }
 ];
 
@@ -272,6 +283,54 @@ const RANDOM_PLACES_POOL = [
   }
 ];
 
+// All Upgradeable / Move-In Homes from the Life Path Tab & Age 16 Move-Out!
+const PLAYER_UPGRADE_HOMES_POOL = [
+  {
+    id: 'starter-loft',
+    name: 'Move-Out Starter Loft',
+    icon: '🔑',
+    bg: '#E0F7FA', border: '#00ACC1', roof: '#006064',
+    roofStyle: 'plaza',
+    desc: 'Cozy independent apartment (Age 16+)! Exposed Brick Wall, Loft Bed, Sofa, Guitar & Plants!',
+    actionLabel: '😴 Sleep in Loft (+90% Energy ⚡)',
+    decor: ['🪴', '🛋️', '🎸'],
+    isPlayerHome: true
+  },
+  {
+    id: 'sunny-loft',
+    name: 'Sunny Loft Apartment',
+    icon: '🪴',
+    bg: '#E0F2FE', border: '#0284C7', roof: '#0369A1',
+    roofStyle: 'plaza',
+    desc: 'Your bright Sunny Loft Apartment! Teal Loft Bed, Window Plants, Sofa, Board Game Table & Kitchen!',
+    actionLabel: '🪴 Inside Sunny Loft',
+    decor: ['🪴', '🛋️', '🎲'],
+    isPlayerHome: true
+  },
+  {
+    id: 'maple-cottage',
+    name: 'Maple Porch Cottage',
+    icon: '🏡',
+    bg: '#FEF3C7', border: '#D97706', roof: '#B45309',
+    roofStyle: 'pitched',
+    desc: 'Your cozy Maple Porch Cottage! Warm Fireplace, Porch Swing, Fenced Pet Yard, Cozy Bed & Kitchen!',
+    actionLabel: '🏡 Inside Maple Cottage',
+    decor: ['🔥', '🐶', '🛋️'],
+    isPlayerHome: true
+  },
+  {
+    id: 'treehouse-villa',
+    name: 'Lakeside Craft House',
+    icon: '🏰',
+    bg: '#F3E8FF', border: '#9333EA', roof: '#6B21A8',
+    roofStyle: 'pitched',
+    desc: 'Your dream Lakeside Craft House! Luxury Bed, Fireplace, Art & Tech Studio, Arcade & Garden!',
+    actionLabel: '🏰 Inside Lakeside House',
+    decor: ['🏰', '🎨', '🕹️'],
+    isPlayerHome: true
+  }
+];
+
 // 4x4 Grid coordinates (16 slots inside the 2D Square)
 const GRID_COORDS_16 = [
   // Row 1 (Top)
@@ -284,6 +343,33 @@ const GRID_COORDS_16 = [
   { x: 14, y: 86 }, { x: 38, y: 86 }, { x: 62, y: 86 }, { x: 86, y: 86 }
 ];
 
+function getUnlockedPlayerHomePlaces(state) {
+  if (!state) return [];
+  const homeIds = new Set();
+  if (Array.isArray(state.ownedHomes)) {
+    state.ownedHomes.forEach(id => {
+      if (id && id !== 'family-room' && id !== 'family-home') homeIds.add(id);
+    });
+  }
+  if (state.homeId && state.homeId !== 'family-room' && state.homeId !== 'family-home') {
+    homeIds.add(state.homeId);
+  }
+  if (state.livingWith === 'moved-out-16') {
+    homeIds.add('starter-loft');
+  }
+  const result = [];
+  homeIds.forEach(hId => {
+    const found = PLAYER_UPGRADE_HOMES_POOL.find(h => h.id === hId);
+    if (found) {
+      result.push({
+        ...found,
+        unlockAge: 0
+      });
+    }
+  });
+  return result;
+}
+
 function getActiveWorldPlaces(state) {
   const list = FIXED_WORLD_PLACES.map((p, idx) => ({
     ...p,
@@ -294,28 +380,39 @@ function getActiveWorldPlaces(state) {
     isRandom: false
   }));
 
-  // Add up to 4 most recent unlocked random places in the bottom row (Slots 12..15)
-  const unlockedRandomIds = state.unlockedRandomPlaces || [];
-  const visibleRandomIds = unlockedRandomIds.slice(-4);
+  // 1. Always prioritize showing all Homes the player owns/unlocked on the 2D Town Map!
+  const remainingSlots = Math.max(0, GRID_COORDS_16.length - FIXED_WORLD_PLACES.length);
+  const ownedHomePlaces = getUnlockedPlayerHomePlaces(state);
+  const ownedHomeIds = new Set(ownedHomePlaces.map(h => h.id));
 
-  for (let i = 0; i < 4; i++) {
-    const coord = GRID_COORDS_16[12 + i];
-    const rId = visibleRandomIds[i];
-    if (rId) {
-      const found = RANDOM_PLACES_POOL.find(r => r.id === rId);
-      if (found) {
-        const unlockedAt = (state.randomUnlockAges && state.randomUnlockAges[rId]) || 7 + i;
-        list.push({
-          ...found,
-          unlockAge: unlockedAt,
-          x: coord.x,
-          y: coord.y,
-          w: 21,
-          h: 19,
-          isRandom: true
-        });
-        continue;
-      }
+  // 2. Fill any remaining bottom-row slots with the most recent unlocked random places
+  const unlockedRandomIds = (state.unlockedRandomPlaces || []).filter(id => !ownedHomeIds.has(id));
+  const randomNeeded = Math.max(0, remainingSlots - ownedHomePlaces.length);
+  const visibleRandomObjs = unlockedRandomIds.slice(-randomNeeded).map((rId, idx) => {
+    const found = RANDOM_PLACES_POOL.find(r => r.id === rId);
+    if (!found) return null;
+    const unlockedAt = (state.randomUnlockAges && state.randomUnlockAges[rId]) || 7 + idx;
+    return {
+      ...found,
+      unlockAge: unlockedAt,
+      isRandom: true
+    };
+  }).filter(Boolean);
+
+  const bottomRowPlaces = [...ownedHomePlaces, ...visibleRandomObjs].slice(0, remainingSlots);
+
+  for (let i = 0; i < remainingSlots; i++) {
+    const coord = GRID_COORDS_16[FIXED_WORLD_PLACES.length + i];
+    const placeObj = bottomRowPlaces[i];
+    if (placeObj) {
+      list.push({
+        ...placeObj,
+        x: coord.x,
+        y: coord.y,
+        w: 21,
+        h: 19
+      });
+      continue;
     }
     // Mystery Random Slot placeholder for Age 7+
     list.push({
@@ -330,7 +427,7 @@ function getActiveWorldPlaces(state) {
       bg: '#E9ECEF',
       border: '#ADB5BD',
       roof: '#868E96',
-      desc: 'Unlocks a random new place at Age 7+!',
+      desc: 'Unlocks a random new place at Age 7+ (or when you get a new Home)!',
       actionLabel: '🎲 Locked Mystery Place',
       decor: ['❓', '✨', '❓'],
       isMystery: true
@@ -966,6 +1063,648 @@ function renderFridgeFoodSVG(type) {
   `;
 }
 
+function renderBackpackFurnitureSVG() {
+  const count = (typeof gameState !== 'undefined' && gameState && Array.isArray(gameState.packedBag))
+    ? gameState.packedBag.length
+    : 3;
+  return `
+    <svg width="58" height="62" viewBox="0 0 64 68" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;">
+      <!-- Floor Shadow -->
+      <ellipse cx="32" cy="63" rx="22" ry="4.5" fill="rgba(0,0,0,0.2)"/>
+      <!-- Top Carry Handle -->
+      <path d="M23,13 C23,5 41,5 41,13" fill="none" stroke="#B45309" stroke-width="4" stroke-linecap="round"/>
+      <!-- Side Bottle Pockets -->
+      <rect x="7" y="34" width="7" height="20" rx="3.5" fill="#0284C7" stroke="#0369A1" stroke-width="1.5"/>
+      <rect x="50" y="34" width="7" height="20" rx="3.5" fill="#0284C7" stroke="#0369A1" stroke-width="1.5"/>
+      <!-- Main Backpack Body -->
+      <rect x="12" y="13" width="40" height="47" rx="14" fill="#EF4444" stroke="#991B1B" stroke-width="2"/>
+      <!-- Top Flap Highlight -->
+      <path d="M14,26 C14,15 50,15 50,26 L50,30 L14,30 Z" fill="#F87171"/>
+      <!-- Gold Zipper Line -->
+      <line x1="15" y1="30" x2="49" y2="30" stroke="#FACC15" stroke-width="2.5" stroke-dasharray="3,2"/>
+      <!-- Front Zip Pocket -->
+      <rect x="18" y="35" width="28" height="20" rx="7" fill="#3B82F6" stroke="#1D4ED8" stroke-width="1.8"/>
+      <line x1="21" y1="40" x2="43" y2="40" stroke="#FDE047" stroke-width="2"/>
+      <!-- Star Patch & Packed Count Badge -->
+      <circle cx="32" cy="22" r="6.5" fill="#FEF08A" stroke="#CA8A04" stroke-width="1.5"/>
+      <text x="32" y="25" font-size="8.5" font-weight="900" text-anchor="middle" fill="#92400E">${count}/6</text>
+    </svg>
+  `;
+}
+
+function renderGymTreadmillSVG() {
+  return `
+    <svg width="118" height="106" viewBox="0 0 120 110" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;">
+      <!-- Shadow -->
+      <ellipse cx="60" cy="102" rx="50" ry="6" fill="rgba(0,0,0,0.18)"/>
+      <!-- Running Deck & Belt -->
+      <polygon points="14,88 96,82 104,95 10,98" fill="#1E293B" stroke="#475569" stroke-width="2.5"/>
+      <line x1="24" y1="91" x2="88" y2="87" stroke="#38BDF8" stroke-width="2" stroke-dasharray="6,4"/>
+      <!-- Side Rails -->
+      <rect x="12" y="94" width="90" height="6" rx="3" fill="#64748B"/>
+      <!-- Upright Frame & Handrails -->
+      <line x1="88" y1="86" x2="78" y2="26" stroke="#334155" stroke-width="6" stroke-linecap="round"/>
+      <path d="M78,34 L48,46" fill="none" stroke="#EF4444" stroke-width="5" stroke-linecap="round"/>
+      <!-- Digital Console Screen -->
+      <rect x="64" y="12" width="30" height="18" rx="4" fill="#0F172A" stroke="#EF4444" stroke-width="2"/>
+      <rect x="68" y="15" width="22" height="10" rx="2" fill="#22C55E"/>
+      <text x="79" y="23" font-size="6.5" font-weight="900" text-anchor="middle" fill="#052E16">RUN ⚡</text>
+    </svg>
+  `;
+}
+
+function renderGymWeightBenchSVG() {
+  return `
+    <svg width="134" height="106" viewBox="0 0 136 110" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;">
+      <!-- Shadow -->
+      <ellipse cx="68" cy="102" rx="56" ry="6" fill="rgba(0,0,0,0.18)"/>
+      <!-- Steel Rack Uprights -->
+      <rect x="30" y="28" width="6" height="68" rx="2" fill="#475569"/>
+      <rect x="100" y="28" width="6" height="68" rx="2" fill="#475569"/>
+      <!-- Heavy Barbell Bar -->
+      <line x1="8" y1="38" x2="128" y2="38" stroke="#94A3B8" stroke-width="4.5" stroke-linecap="round"/>
+      <!-- Left Weight Plates (Blue & Red) -->
+      <rect x="14" y="22" width="7" height="32" rx="2.5" fill="#DC2626" stroke="#7F1D1D" stroke-width="1.5"/>
+      <rect x="22" y="26" width="6" height="24" rx="2" fill="#2563EB" stroke="#1E3A8A" stroke-width="1.5"/>
+      <!-- Right Weight Plates (Blue & Red) -->
+      <rect x="108" y="26" width="6" height="24" rx="2" fill="#2563EB" stroke="#1E3A8A" stroke-width="1.5"/>
+      <rect x="115" y="22" width="7" height="32" rx="2.5" fill="#DC2626" stroke="#7F1D1D" stroke-width="1.5"/>
+      <!-- Padded Red Workout Bench -->
+      <rect x="40" y="68" width="56" height="12" rx="5" fill="#EF4444" stroke="#991B1B" stroke-width="2"/>
+      <rect x="48" y="80" width="8" height="18" rx="2" fill="#334155"/>
+      <rect x="80" y="80" width="8" height="18" rx="2" fill="#334155"/>
+      <!-- Mini Dumbbells on Floor -->
+      <circle cx="58" cy="95" r="5" fill="#1E293B"/>
+      <circle cx="78" cy="95" r="5" fill="#1E293B"/>
+      <line x1="58" y1="95" x2="78" y2="95" stroke="#64748B" stroke-width="3"/>
+    </svg>
+  `;
+}
+
+function renderGymPunchingBagSVG() {
+  return `
+    <svg width="96" height="126" viewBox="0 0 96 126" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;">
+      <!-- Floor Shadow & Yoga Mat -->
+      <rect x="8" y="104" width="80" height="14" rx="7" fill="#8B5CF6" stroke="#5B21B6" stroke-width="2"/>
+      <!-- Steel Stand & Chain -->
+      <path d="M72,110 L72,10 L44,10" fill="none" stroke="#334155" stroke-width="5" stroke-linecap="round"/>
+      <line x1="44" y1="10" x2="44" y2="26" stroke="#94A3B8" stroke-width="3" stroke-dasharray="3,2"/>
+      <!-- Heavy Red Boxing Bag -->
+      <rect x="28" y="26" width="32" height="66" rx="14" fill="#DC2626" stroke="#7F1D1D" stroke-width="2.5"/>
+      <rect x="28" y="42" width="32" height="7" fill="#FACC15"/>
+      <rect x="28" y="70" width="32" height="7" fill="#FACC15"/>
+      <text x="44" y="62" font-size="11" font-weight="900" text-anchor="middle" fill="#FFFFFF">🥊</text>
+    </svg>
+  `;
+}
+
+const BAG_PACKABLE_ITEMS = [
+  // School & Study Essentials
+  {
+    id: 'notebook',
+    name: 'Notebook & Pencil Case',
+    icon: '📓',
+    category: 'school',
+    desc: '+10 Smarts 🧠 & +6 Story',
+    effects: { smarts: 10, skill: ['story', 6] }
+  },
+  {
+    id: 'sketchbook',
+    name: 'Sketchbook & Crayons',
+    icon: '🎨',
+    category: 'school',
+    desc: '+10 Art 🎨 & +8 Happiness',
+    effects: { happiness: 8, skill: ['art', 10] }
+  },
+  {
+    id: 'magnifier',
+    name: 'Science Kit & Magnifier',
+    icon: '🔬',
+    category: 'school',
+    desc: '+10 Science 🔬 & +8 Smarts',
+    effects: { smarts: 8, skill: ['science', 10] }
+  },
+  {
+    id: 'storybook',
+    name: 'Favorite Adventure Book',
+    icon: '📖',
+    category: 'school',
+    desc: '+8 Smarts 🧠 & +8 Happiness',
+    effects: { smarts: 8, happiness: 8 }
+  },
+  // Lunchbox Snacks & Drinks
+  {
+    id: 'boba',
+    name: 'Boba Bubble Milk Tea',
+    icon: '🧋',
+    category: 'snack',
+    desc: '+16% ⚡ Energy & +12 Happiness',
+    effects: { energy: 16, happiness: 12 }
+  },
+  {
+    id: 'lunchbox',
+    name: 'Grilled Cheese Lunchbox',
+    icon: '🍱',
+    category: 'snack',
+    desc: '+16% ⚡ Energy & +8 Health',
+    effects: { energy: 16, health: 8 }
+  },
+  {
+    id: 'apple',
+    name: 'Crisp Apple & Berry Pack',
+    icon: '🍎',
+    category: 'snack',
+    desc: '+12% ⚡ Energy & +8 Health',
+    effects: { energy: 12, health: 8 }
+  },
+  {
+    id: 'juice',
+    name: 'Strawberry Brain Smoothie',
+    icon: '🧃',
+    category: 'snack',
+    desc: '+14% ⚡ Energy & +7 Smarts',
+    effects: { energy: 14, smarts: 7 }
+  },
+  // Fun & Outing Gear
+  {
+    id: 'plushie',
+    name: 'Mini Teddy Plush Buddy',
+    icon: '🧸',
+    category: 'fun',
+    desc: '+12 Happiness 😊 & +8 Kindness',
+    effects: { happiness: 12, kindness: 8 }
+  },
+  {
+    id: 'camera',
+    name: 'Instant Pocket Camera',
+    icon: '📸',
+    category: 'fun',
+    desc: '+10 Happiness 😊 & +8 Art',
+    effects: { happiness: 10, skill: ['art', 8] }
+  },
+  {
+    id: 'waterbottle',
+    name: 'Sport Water Bottle & Cap',
+    icon: '🧴',
+    category: 'fun',
+    desc: '+10% ⚡ Energy & +8 Athletics',
+    effects: { energy: 10, skill: ['athletics', 8] }
+  },
+  {
+    id: 'handheld',
+    name: 'Pocket Game Console',
+    icon: '🎮',
+    category: 'fun',
+    desc: '+12 Happiness 😊 & +8 Smarts',
+    effects: { happiness: 12, smarts: 8 }
+  }
+];
+
+// =========================================================
+// INTERACTIVE DECISIONS CATALOG (SCENARIOS + DAILY LIFE CHOICES!)
+// =========================================================
+
+const DECISION_SCENARIOS = [
+  {
+    id: 'dec-ice-cream-truck',
+    title: '🍦 The Rainbow Ice Cream Truck!',
+    icon: '🍦',
+    badge: 'Sweet Dilemma',
+    prompt: 'The rainbow Ice Cream Truck just rolled down your street playing jingle music! What do you decide to do?',
+    choices: [
+      {
+        label: '1: Buy a Giant 3-Scoop Waffle Cone!',
+        sub: '+15 😊 Happiness, +14% ⚡ Energy & Visit Ice Cream Shop!',
+        outcomeText: '🍦 You got a giant 3-scoop waffle cone with rainbow sprinkles at the Ice Cream Shop!',
+        targetPlaceId: 'ice-cream-shop',
+        stats: { happiness: 15, energy: 14 }
+      },
+      {
+        label: '2: Treat Your Best Friend to Ice Cream & Boba!',
+        sub: '+16 🤝 Friend Bond, +14 😊 Happiness & +10 💛 Kindness',
+        outcomeText: '🧋🍦 You treated your Best Friend to Ice Cream and Boba Milk Tea! They gave you the biggest hug!',
+        targetPlaceId: 'ice-cream-shop',
+        stats: { happiness: 14, kindness: 10, friendBoost: 16 }
+      },
+      {
+        label: '3: Save Your Money in Your Piggy Bank Instead',
+        sub: '+$12 🪙 Savings Bonus from Mom & +10 🧠 Smarts!',
+        outcomeText: '🐷 You decided to save your money! Mom was so proud she added +$12 to your piggy bank!',
+        stats: { money: 12, smarts: 10, kindness: 6 }
+      },
+      {
+        label: '4: Open Your Home Fridge for Free Boba Milk Tea!',
+        sub: 'Opens Fridge & Drinks Boba (+16% ⚡ Energy, +12 😊)',
+        outcomeText: '🧊🧋 Smart choice! You grabbed a cold Boba Bubble Milk Tea right from the bottom shelf of your Fridge!',
+        consumeItem: 'boba',
+        stats: { smarts: 6 }
+      }
+    ]
+  },
+  {
+    id: 'dec-lost-puppy',
+    title: '🐶 Friendly Golden Puppy in the Park!',
+    icon: '🐶',
+    badge: 'Kindness Choice',
+    prompt: 'A cute golden puppy with a shiny tag runs up to you wagging its tail! What do you decide to do?',
+    choices: [
+      {
+        label: '1: Help Find the Puppy’s Owner Around Town',
+        sub: '+$15 🪙 Thank-You Reward, +16 💛 Kindness & +14 😊 Happiness',
+        outcomeText: '🐶💛 You reunited the puppy with its owner! They gave you a $15 reward and a huge thank-you!',
+        stats: { money: 15, kindness: 16, happiness: 14 }
+      },
+      {
+        label: '2: Play Fetch Together at the Sunny Playground!',
+        sub: 'Travels to Playground (+14 😊, +10 💚 Health, +10 🏃 Athletics)',
+        outcomeText: '🛝🐶 You ran around the Sunny Playground playing fetch with the happy puppy!',
+        targetPlaceId: 'playground',
+        stats: { happiness: 14, health: 10, skill: ['athletics', 10] }
+      },
+      {
+        label: '3: Draw "Found Puppy" Posters at Your Study Desk',
+        sub: 'Opens Study Desk (+12 🎨 Art, +10 🧠 Smarts, +10 💛 Kindness)',
+        outcomeText: '🎨🐶 Your colorful posters helped everyone spot the puppy’s family right away!',
+        targetStation: 'desk',
+        stats: { smarts: 10, kindness: 10, skill: ['art', 12] }
+      },
+      {
+        label: '4: Ask Mom & Dad to Help Take Care of It',
+        sub: '+12 👨‍👩‍👧 Family Bond, +12 💛 Kindness & +10 😊 Happiness',
+        outcomeText: '🏡🐶 Mom and Dad gave the puppy a bowl of water and helped call the number on its collar!',
+        stats: { kindness: 12, happiness: 10, health: 6 }
+      }
+    ]
+  },
+  {
+    id: 'dec-family-night',
+    title: '🍕 Family Night Vote — You Pick!',
+    icon: '🍕',
+    badge: 'Family Decision',
+    prompt: 'Mom and Dad say YOU get to choose what the whole family does together today! What is your decision?',
+    choices: [
+      {
+        label: '1: Go Bake Our Own Pizza at the Pizza Place!',
+        sub: 'Travels to Pizza Oven (+16% ⚡ Energy, +14 😊, +8 🧁 Cooking)',
+        outcomeText: '🍕🔥 The whole family went to the Brick-Oven Pizza Place and baked a cheesy masterpiece!',
+        targetPlaceId: 'pizza-place',
+        targetStation: 'pizza',
+        stats: { happiness: 14, energy: 16, skill: ['cooking', 8] }
+      },
+      {
+        label: '2: Take the Family SUV for a Sunset Joyride!',
+        sub: 'Travels to Family SUV & Drives (+14 😊 Happiness, +10 💛 Kindness)',
+        outcomeText: '🚗🎶 Everyone hopped into the Family SUV and sang road-trip songs together!',
+        targetPlaceId: 'family-car',
+        liveAction: 'drive',
+        stats: { happiness: 14, kindness: 10 }
+      },
+      {
+        label: '3: Visit the Wonder Toy Store Together!',
+        sub: 'Travels to Toy Store (+15 😊 Happiness & +$10 Toy Allowance!)',
+        outcomeText: '🧸🦖 Dad gave you $10 toy allowance and you explored the Wonder Toy Store together!',
+        targetPlaceId: 'toy-store',
+        stats: { money: 10, happiness: 15, kindness: 8 }
+      },
+      {
+        label: '4: Stay Home for Mom’s Warm Chicken Soup & Games',
+        sub: 'Serves Mom’s Soup (+14% ⚡ Energy, +12 💚 Health, +10 😊)',
+        outcomeText: '🍲🎲 You had a cozy night at home with Mom’s Warm Chicken Soup and family board games!',
+        consumeItem: 'soup',
+        stats: { happiness: 10, kindness: 10 }
+      }
+    ]
+  },
+  {
+    id: 'dec-school-showcase',
+    title: '🏫 The Big School Talent & Science Showcase!',
+    icon: '🏆',
+    badge: 'School Decision',
+    prompt: 'Everyone at Hometown School is picking a special project to present! Which one do you decide to enter?',
+    choices: [
+      {
+        label: '1: Bubbling Volcano & Robotics Science Project!',
+        sub: 'Travels to School (+15 🧠 Smarts & +14 🔬 Science Skill)',
+        outcomeText: '🔬🌋 Your bubbling volcano and robot won 1st Prize at Hometown School!',
+        targetPlaceId: 'school',
+        stats: { smarts: 15, happiness: 10, skill: ['science', 14] }
+      },
+      {
+        label: '2: Paint a Giant Rainbow Town Mural!',
+        sub: 'Travels to School (+14 🎨 Art Skill, +14 😊 Happiness)',
+        outcomeText: '🎨🌈 Everyone clapped for your giant colorful mural in the school hallway!',
+        targetPlaceId: 'school',
+        stats: { happiness: 14, kindness: 8, skill: ['art', 14] }
+      },
+      {
+        label: '3: Team Up with Your Best Friend on a Story Comic!',
+        sub: '+15 🤝 Friend Bond, +12 📖 Storytelling & +12 😊 Happiness',
+        outcomeText: '📖🌟 You and your Best Friend wrote and illustrated the funniest comic book in class!',
+        targetPlaceId: 'school',
+        stats: { happiness: 12, smarts: 10, friendBoost: 15, skill: ['story', 12] }
+      },
+      {
+        label: '4: Take a Cozy Nap in Bed First so You’re Rested!',
+        sub: 'Sleeps in Bed (+25% ⚡ Energy & +10 💚 Health)',
+        outcomeText: '🛏️💤 You took a refreshing nap in your cozy bed so your brain is 100% recharged!',
+        liveAction: 'sleep',
+        stats: { health: 10, happiness: 8 }
+      }
+    ]
+  },
+  {
+    id: 'dec-weekend-allowance',
+    title: '🪙 Weekend Allowance & Helper Challenge!',
+    icon: '🪙',
+    badge: 'Money Decision',
+    prompt: 'Mom and Dad offer you a bonus allowance if you pick a helpful project today! What do you choose?',
+    choices: [
+      {
+        label: '1: Wash the Family SUV with the Soapy Sponge!',
+        sub: '+$16 🪙 Allowance, +10 🏃 Athletics & Live Car Wash!',
+        outcomeText: '🧽🫧 You scrubbed the Family SUV until it sparkled and earned $16!',
+        targetPlaceId: 'family-car',
+        liveAction: 'wash-car',
+        stats: { money: 4, happiness: 10, kindness: 10, skill: ['athletics', 8] }
+      },
+      {
+        label: '2: Pack & Organize Your Backpack & Bedroom',
+        sub: '+$14 🪙 Allowance, +10 🧠 Smarts & Opens Bag Packing!',
+        outcomeText: '🎒✨ You organized your room and packed your Backpack neatly! Mom gave you $14!',
+        targetStation: 'bag',
+        stats: { money: 14, smarts: 10, happiness: 10 }
+      },
+      {
+        label: '3: Help Bake Cupcakes & Stock the Kitchen Fridge',
+        sub: '+$14 🪙 Allowance, +12 🧁 Cooking & +12% ⚡ Energy',
+        outcomeText: '🧁🧊 You baked fresh treats with Mom and earned $14 plus a warm cupcake!',
+        stats: { money: 14, energy: 12, happiness: 12, skill: ['cooking', 12] }
+      },
+      {
+        label: '4: Decorate Your Room with New Furniture Instead',
+        sub: '+$10 🪙 Decor Grant & Opens Room Furniture Studio!',
+        outcomeText: '🪑🪴 Mom gave you a $10 decorating bonus and opened the Room Furniture Studio!',
+        targetStation: 'decor',
+        stats: { money: 10, happiness: 12, skill: ['art', 6] }
+      }
+    ]
+  },
+  {
+    id: 'dec-bestie-weekend',
+    title: '🌟 Best Friend Weekend Adventure!',
+    icon: '🌟',
+    badge: 'Friendship Choice',
+    prompt: 'Your Best Friend wants to go on a big adventure today and lets you decide where to go!',
+    choices: [
+      {
+        label: '1: Sunnyvale Mall Photo Booth & Fountain!',
+        sub: 'Travels to Mall (+16 🤝 Friend Bond, +15 😊 Happiness)',
+        outcomeText: '🛍️📸 You and your Bestie took silly photo strips and tossed lucky coins in the Mall Fountain!',
+        targetPlaceId: 'mall',
+        stats: { happiness: 15, kindness: 10, friendBoost: 16, skill: ['art', 8] }
+      },
+      {
+        label: '2: Gaming & Pancake Party at Best Friend’s Home!',
+        sub: 'Travels to Best Friend’s Home (+18 🤝 Bond, +14% ⚡ Energy)',
+        outcomeText: '🏡🥞 You played co-op games on the big TV and ate fluffy pancakes at Best Friend’s Home!',
+        targetPlaceId: 'best-friend-home',
+        stats: { happiness: 15, energy: 14, friendBoost: 18, skill: ['cooking', 6] }
+      },
+      {
+        label: '3: Slushies & Pretzels at the Corner Snack Store!',
+        sub: 'Travels to Corner Snack Store (+15% ⚡ Energy, +14 😊)',
+        outcomeText: '🍿🥤 You both got blue-raspberry slushies and warm pretzels at the Corner Snack Store!',
+        targetPlaceId: 'snack-store',
+        stats: { happiness: 14, energy: 15, friendBoost: 14 }
+      },
+      {
+        label: '4: Race Down the Giant Slide at the Playground!',
+        sub: 'Travels to Playground & Slides (+15 😊, +10 🏃 Athletics)',
+        outcomeText: '🛝☀️ You raced down the Giant Yellow Slide at the Sunny Playground!',
+        targetPlaceId: 'playground',
+        liveAction: 'slide',
+        stats: { happiness: 15, health: 10, friendBoost: 14 }
+      }
+    ]
+  },
+  {
+    id: 'dec-mystery-ticket',
+    title: '🎁 The Golden Mystery Prize Ticket!',
+    icon: '🎁',
+    badge: 'Prize Decision',
+    prompt: 'You found a Golden Prize Ticket! You can trade it in for one of four special rewards — which do you choose?',
+    choices: [
+      {
+        label: '1: The Treasure Chest of Coins (+$25 Cash!)',
+        sub: '+$25 🪙 Instant Savings & +12 😊 Happiness!',
+        outcomeText: '🪙✨ You opened the Treasure Chest and added $25 to your savings!',
+        stats: { money: 25, happiness: 12 }
+      },
+      {
+        label: '2: The Ultimate Boba & Feast Basket!',
+        sub: '+25% ⚡ Energy, +15 😊 Happiness & +10 💚 Health!',
+        outcomeText: '🧋🥞 You chose the Ultimate Boba & Feast Basket and recharged +25% Energy!',
+        stats: { energy: 25, happiness: 15, health: 10 }
+      },
+      {
+        label: '3: The Master Genius & Artist Kit!',
+        sub: '+15 🧠 Smarts, +12 🎨 Art & +12 🔬 Science!',
+        outcomeText: '🧠🎨 You chose the Master Genius & Artist Kit and leveled up your Smarts, Art & Science!',
+        stats: { smarts: 15, skill: ['art', 12], skill2: ['science', 12] }
+      },
+      {
+        label: '4: The Friendship Party Box (Share with Everyone!)',
+        sub: '+18 💛 Kindness & +15 🤝 Bond with ALL Friends!',
+        outcomeText: '🎈💛 You shared the prize with all your friends! Everyone’s friendship bond soared!',
+        stats: { kindness: 18, happiness: 15, allFriendsBoost: 15 }
+      }
+    ]
+  }
+];
+
+const LIFE_RULE_DECISIONS = [
+  {
+    key: 'dailyFocus',
+    title: '🎯 My Daily Focus Priority',
+    options: [
+      { id: 'balanced', label: '🌟 Balanced & Happy (+8 😊)', stats: { happiness: 8, kindness: 5 } },
+      { id: 'study', label: '📚 Straight-A Scholar (+10 🧠)', stats: { smarts: 10, skill: ['science', 6] } },
+      { id: 'creative', label: '🎨 Super Artist & Musician (+10 🎨)', stats: { happiness: 8, skill: ['art', 10] } },
+      { id: 'active', label: '⚽ Sporty & Healthy (+10 💚)', stats: { health: 10, skill: ['athletics', 10] } }
+    ]
+  },
+  {
+    key: 'moneyRule',
+    title: '🪙 My Pocket Money Rule',
+    options: [
+      { id: 'saver', label: '🐷 Piggy Bank Saver (+$10 Bonus!)', stats: { money: 10, smarts: 6 } },
+      { id: 'treats', label: '🍦 Snacks & Ice Cream Lover (+12% ⚡, +10 😊)', stats: { energy: 12, happiness: 10 } },
+      { id: 'generous', label: '🎁 Share with Family & Friends (+12 💛)', stats: { kindness: 12, friendBoost: 10 } }
+    ]
+  },
+  {
+    key: 'freeTimeRule',
+    title: '🏡 My Favorite Free-Time Activity',
+    options: [
+      { id: 'boba-chill', label: '🧋 Sip Boba & Relax in Room (+12% ⚡)', stats: { energy: 12, happiness: 8 } },
+      { id: 'outdoors', label: '🛝 Play Outside at the Park (+10 😊, +8 💚)', stats: { happiness: 10, health: 8 } },
+      { id: 'gaming', label: '🎮 Co-Op Gaming with Bestie (+12 🤝)', stats: { happiness: 10, friendBoost: 12 } }
+    ]
+  }
+];
+
+// =========================================================
+// DAILY SCHEDULE PLANNER CATALOG (4 TIME SLOTS: MORNING, AFTERNOON, EVENING, NIGHT)
+// =========================================================
+
+const DAILY_SCHEDULE_SLOTS = [
+  {
+    slotKey: 'morning',
+    timeLabel: '🌅 Morning (8:00 AM)',
+    color: '#F59E0B',
+    bg: '#FFFBEB',
+    options: [
+      {
+        id: 'pack-bag',
+        name: '🎒 Pack My Bag & Eat Pancakes',
+        desc: '+14% ⚡ Energy, +8 🧠 Smarts & Opens Bag Packing',
+        targetStation: 'bag',
+        stats: { energy: 14, smarts: 8, happiness: 8 }
+      },
+      {
+        id: 'morning-boba',
+        name: '🧋 Drink Boba Milk Tea from Fridge',
+        desc: '+16% ⚡ Energy & +12 😊 Happiness (Opens Fridge)',
+        consumeItem: 'boba',
+        stats: { happiness: 6 }
+      },
+      {
+        id: 'morning-school',
+        name: '🏫 Morning Class at Hometown School',
+        desc: '+12 🧠 Smarts & +10 🔬 Science (Travels to School)',
+        targetPlaceId: 'school',
+        stats: { smarts: 12, happiness: 6, skill: ['science', 10] }
+      },
+      {
+        id: 'morning-park',
+        name: '💪 Morning Workout at Powerhouse Gym',
+        desc: '+12 💚 Health & +12 🏃 Athletics (Travels to Powerhouse Gym)',
+        targetPlaceId: 'gym',
+        liveAction: 'treadmill',
+        stats: { health: 12, happiness: 10, skill: ['athletics', 12] }
+      }
+    ]
+  },
+  {
+    slotKey: 'afternoon',
+    timeLabel: '☀️ Afternoon (1:00 PM)',
+    color: '#0284C7',
+    bg: '#F0F9FF',
+    options: [
+      {
+        id: 'afternoon-icecream',
+        name: '🍦 Visit Rainbow Ice Cream Shop',
+        desc: '+14 😊 Happiness & +12% ⚡ Energy (Travels to Ice Cream Shop)',
+        targetPlaceId: 'ice-cream-shop',
+        stats: { happiness: 14, energy: 12, kindness: 6 }
+      },
+      {
+        id: 'afternoon-toys',
+        name: '🧸 Explore the Wonder Toy Store',
+        desc: '+14 😊 Happiness & +8 🧠 Smarts (Travels to Toy Store)',
+        targetPlaceId: 'toy-store',
+        stats: { happiness: 14, smarts: 8 }
+      },
+      {
+        id: 'afternoon-mall',
+        name: '🛍️ Hang Out at Sunnyvale Mall',
+        desc: '+14 😊 Happiness & +14 🤝 Bestie Bond (Travels to Mall)',
+        targetPlaceId: 'mall',
+        stats: { happiness: 14, kindness: 8, friendBoost: 14 }
+      },
+      {
+        id: 'afternoon-carwash',
+        name: '🧽 Wash Family SUV for +$14 Allowance',
+        desc: '+$14 🪙 Money & +8 💛 Kindness (Travels to Family SUV)',
+        targetPlaceId: 'family-car',
+        liveAction: 'wash-car',
+        stats: { money: 2, happiness: 8, kindness: 8 }
+      }
+    ]
+  },
+  {
+    slotKey: 'evening',
+    timeLabel: '🌇 Evening (5:30 PM)',
+    color: '#E11D48',
+    bg: '#FFF1F2',
+    options: [
+      {
+        id: 'evening-pizza',
+        name: '🍕 Bake & Eat Dinner at Pizza Place',
+        desc: '+18% ⚡ Energy, +12 😊 & +8 🧁 Cooking (Pizza Place)',
+        targetPlaceId: 'pizza-place',
+        targetStation: 'pizza',
+        stats: { energy: 18, happiness: 12, skill: ['cooking', 8] }
+      },
+      {
+        id: 'evening-desk',
+        name: '💻 Draw & Study at Bedroom Desk',
+        desc: '+10 🧠 Smarts & +10 🎨 Art (Opens Study Desk)',
+        targetStation: 'desk',
+        stats: { smarts: 10, happiness: 8, skill: ['art', 10] }
+      },
+      {
+        id: 'evening-bestie',
+        name: '🏡 Visit Best Friend’s Home',
+        desc: '+15 🤝 Friend Bond & +12 😊 Happiness (Best Friend’s Home)',
+        targetPlaceId: 'best-friend-home',
+        stats: { happiness: 12, kindness: 8, friendBoost: 15 }
+      },
+      {
+        id: 'evening-soup',
+        name: '🍲 Eat Mom’s Warm Chicken Soup',
+        desc: '+14% ⚡ Energy & +12 💚 Health (Serves Mom’s Soup)',
+        consumeItem: 'soup',
+        stats: { health: 6, kindness: 6 }
+      }
+    ]
+  },
+  {
+    slotKey: 'night',
+    timeLabel: '🌙 Night (8:30 PM)',
+    color: '#4F46E5',
+    bg: '#EEF2FF',
+    options: [
+      {
+        id: 'night-sleep',
+        name: '🛏️ Cozy Bedtime Sleep / Nap',
+        desc: 'Restores ⚡ Energy & +8 💚 Health in Your Cozy Bed',
+        liveAction: 'sleep',
+        stats: { health: 8, happiness: 8 }
+      },
+      {
+        id: 'night-story',
+        name: '📖 Bedtime Story & Talk with Mom',
+        desc: '+10 🧠 Smarts, +12 💛 Kindness & +10 😊 Happiness',
+        stats: { smarts: 10, kindness: 12, happiness: 10, skill: ['story', 8] }
+      },
+      {
+        id: 'night-wardrobe',
+        name: '👕 Pick Tomorrow’s Outfit in Wardrobe',
+        desc: '+10 😊 Happiness & +6 🎨 Art (Opens Wardrobe)',
+        targetStation: 'wardrobe',
+        stats: { happiness: 10, skill: ['art', 6] }
+      },
+      {
+        id: 'night-jam',
+        name: '🎧 Nighttime Music & Stargazing',
+        desc: '+12 😊 Happiness & +8 🔬 Science',
+        stats: { happiness: 12, smarts: 6, skill: ['science', 8] }
+      }
+    ]
+  }
+];
+
 // =========================================================
 // PLACE INTERIOR SCENE DEFINITIONS (EVERY PLACE HAS REAL FURNITURE!)
 // =========================================================
@@ -994,9 +1733,16 @@ function getPlaceSceneConfig(roomId, isNight) {
         {
           id: 'room-bed',
           name: '🛏️ Cozy Bed (Sleep / Nap)',
-          x: 15, y: 53,
+          x: 14, y: 53,
           svg: renderCozyBedSVG(isNight, 'pink'),
           action: () => World2D.performLiveAction('sleep', 16)
+        },
+        {
+          id: 'room-bag',
+          name: '🎒 Pack My Bag!',
+          x: 24, y: 59,
+          svg: renderBackpackFurnitureSVG(),
+          action: () => World2D.openStationView('bag')
         },
         {
           id: 'room-shelf',
@@ -1708,13 +2454,134 @@ function getPlaceSceneConfig(roomId, isNight) {
         { id: 'uc-trophy', name: '🏆 Honors & Career Shelf', x: 78, y: 45, svg: renderTreasureShelfAndFridgeSVG(), action: () => World2D.interactWithFurniture(78, 'uni-career') },
         { id: 'uc-lounge', name: '🛋️ Campus Lounge Couch', x: 90, y: 48, svg: renderBeanbagSVG('#0284C7'), action: () => World2D.interactWithFurniture(88, 'uni-career') }
       ]
+    },
+
+    'gym': {
+      title: '💪 Powerhouse Fitness Gym',
+      wallDay: '#E2E8F0',
+      wallNight: '#1E293B',
+      floorDay: '#3B82F6',
+      floorNight: '#1D4ED8',
+      doorX: 54,
+      backdrop: `
+        <!-- Gym Studio Wall Mirror & Motivational Banner -->
+        <div style="position:absolute;left:28%;top:18%;width:210px;height:66px;background:linear-gradient(135deg,#BAE6FD,#E0F2FE);border:4px solid #334155;border-radius:10px;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:0.78rem;color:#0F172A;box-shadow:inset 0 2px 10px rgba(255,255,255,0.8);pointer-events:none;z-index:2;">
+          🪞 POWERHOUSE GYM • STAY STRONG 💪
+        </div>
+        <div class="room-furniture-item" style="left:50%; top:84%; z-index:2; pointer-events:none;">
+          ${renderCozyRugSVG('#EF4444', '#FACC15')}
+        </div>
+      `,
+      furniture: [
+        {
+          id: 'gym-treadmill',
+          name: '🏃 Run on Digital Treadmill!',
+          x: 18, y: 50,
+          svg: renderGymTreadmillSVG(),
+          action: () => World2D.performLiveAction('treadmill', 18, 'gym')
+        },
+        {
+          id: 'gym-bench',
+          name: '🏋️ Lift Barbell & Dumbbells!',
+          x: 38, y: 50,
+          svg: renderGymWeightBenchSVG(),
+          action: () => World2D.performLiveAction('lift-weights', 38, 'gym')
+        },
+        {
+          id: 'gym-boxing',
+          name: '🥊 Boxing Bag & Yoga Mat!',
+          x: 76, y: 47,
+          svg: renderGymPunchingBagSVG(),
+          action: () => World2D.performLiveAction('boxing', 76, 'gym')
+        },
+        {
+          id: 'gym-smoothie',
+          name: '🥤 Protein Smoothie Fridge (+⚡)',
+          x: 91, y: 45,
+          svg: renderTreasureShelfAndFridgeSVG(),
+          action: () => World2D.openStationView('fridge')
+        }
+      ]
+    },
+
+    'sunny-loft': {
+      title: `🪴 ${gameState ? gameState.name : 'Sunny'}'s Sunny Loft Apartment`,
+      wallDay: '#E0F2FE',
+      wallNight: '#1E293B',
+      floorDay: '#D99B66',
+      floorNight: '#78350F',
+      doorX: 54,
+      backdrop: `
+        <div class="room-furniture-item" style="left:20%; top:23%; z-index:2;" onclick="event.stopPropagation(); ${isNight ? 'sleepForEnergy()' : 'switchToNighttime()'}">
+          ${renderWindowSVG(isNight, 'SUNNY LOFT')}
+        </div>
+        <div class="room-furniture-item" style="left:50%; top:83%; z-index:2; pointer-events:none;">
+          ${renderCozyRugSVG('#0284C7', '#FDE047')}
+        </div>
+      `,
+      furniture: [
+        { id: 'sl-bed', name: '🛏️ Sunny Loft Bed (Sleep / Nap)', x: 15, y: 52, svg: renderCozyBedSVG(isNight, 'teal'), action: () => World2D.performLiveAction('sleep', 16) },
+        { id: 'sl-fridge', name: '🧊 Loft Kitchen Fridge', x: 34, y: 44, svg: renderTreasureShelfAndFridgeSVG(), action: () => World2D.openStationView('fridge') },
+        { id: 'sl-sofa', name: '🛋️ Loft Sofa & Lamp', x: 69, y: 47, svg: renderSofaAndLampSVG(isNight), action: () => World2D.performLiveAction('sleep', 69) },
+        { id: 'sl-desk', name: '💻 Loft Studio Desk', x: 84, y: 52, svg: renderDeskAndShelfSVG(isNight), action: () => World2D.openStationView('desk') },
+        { id: 'sl-plant', name: '🪴 Window Monstera Plant', x: 93, y: 50, svg: renderPottedPlantSVG(), action: () => World2D.openStationView('wardrobe') }
+      ]
+    },
+
+    'maple-cottage': {
+      title: `🏡 ${gameState ? gameState.name : 'Sunny'}'s Maple Porch Cottage`,
+      wallDay: '#FEF3C7',
+      wallNight: '#2D2A4A',
+      floorDay: '#C2844F',
+      floorNight: '#78350F',
+      doorX: 54,
+      backdrop: `
+        <div class="room-furniture-item" style="left:22%; top:23%; z-index:2;" onclick="event.stopPropagation(); ${isNight ? 'sleepForEnergy()' : 'switchToNighttime()'}">
+          ${renderWindowSVG(isNight, 'COTTAGE')}
+        </div>
+        <div class="room-furniture-item" style="left:50%; top:83%; z-index:2; pointer-events:none;">
+          ${renderCozyRugSVG('#D97706', '#FEF08A')}
+        </div>
+      `,
+      furniture: [
+        { id: 'mc-bed', name: '🛏️ Cottage Canopy Bed (Sleep / Nap)', x: 14, y: 52, svg: renderCozyBedSVG(isNight, 'amber'), action: () => World2D.performLiveAction('sleep', 15) },
+        { id: 'mc-fire', name: '🔥 Warm Cottage Fireplace', x: 33, y: 46, svg: renderFireplaceSVG(), action: () => World2D.interactWithFurniture(33, 'maple-cottage', '🔥 Warmed up by your Maple Cottage Fireplace! (+10 Happiness)') },
+        { id: 'mc-sofa', name: '🛋️ Cottage Living Room Sofa', x: 68, y: 47, svg: renderSofaAndLampSVG(isNight), action: () => World2D.performLiveAction('sleep', 68) },
+        { id: 'mc-fridge', name: '🧊 Cottage Kitchen & Fridge', x: 83, y: 45, svg: renderTreasureShelfAndFridgeSVG(), action: () => World2D.openStationView('fridge') },
+        { id: 'mc-wardrobe', name: '👕 Cottage Oak Wardrobe', x: 93, y: 44, svg: renderWardrobeAndMirrorSVG(), action: () => World2D.openStationView('wardrobe') }
+      ]
+    },
+
+    'treehouse-villa': {
+      title: `🏰 ${gameState ? gameState.name : 'Sunny'}'s Lakeside Craft House`,
+      wallDay: '#F3E8FF',
+      wallNight: '#1E1B4B',
+      floorDay: '#D99B66',
+      floorNight: '#5B21B6',
+      doorX: 54,
+      backdrop: `
+        <div class="room-furniture-item" style="left:22%; top:23%; z-index:2;" onclick="event.stopPropagation(); ${isNight ? 'sleepForEnergy()' : 'switchToNighttime()'}">
+          ${renderWindowSVG(isNight, 'LAKESIDE')}
+        </div>
+        <div class="room-furniture-item" style="left:50%; top:83%; z-index:2; pointer-events:none;">
+          ${renderCozyRugSVG('#9333EA', '#FDE047')}
+        </div>
+      `,
+      furniture: [
+        { id: 'tv-bed', name: '🛏️ Luxury Master Bed (Sleep / Nap)', x: 14, y: 52, svg: renderCozyBedSVG(isNight, 'pink'), action: () => World2D.performLiveAction('sleep', 15) },
+        { id: 'tv-fire', name: '🔥 Grand Lakeside Fireplace', x: 31, y: 46, svg: renderFireplaceSVG(), action: () => World2D.interactWithFurniture(31, 'treehouse-villa', '🔥 Relaxed by your Lakeside Craft House Fireplace! (+12 Happiness)') },
+        { id: 'tv-sofa', name: '🛋️ Designer Lounge Sofa & Lamp', x: 67, y: 47, svg: renderSofaAndLampSVG(isNight), action: () => World2D.performLiveAction('sleep', 67) },
+        { id: 'tv-desk', name: '💻 Art & Hobby Craft Studio', x: 82, y: 52, svg: renderDeskAndShelfSVG(isNight), action: () => World2D.openStationView('desk') },
+        { id: 'tv-fridge', name: '🧊 Gourmet Kitchen Fridge', x: 92, y: 45, svg: renderTreasureShelfAndFridgeSVG(), action: () => World2D.openStationView('fridge') }
+      ]
     }
   };
 
   const scene = scenes[roomId] || scenes['my-room'];
 
-  // If inside 'my-room' or 'starter-loft', also add any extra Placed Furniture the player owns!
-  if ((roomId === 'my-room' || roomId === 'starter-loft') && typeof gameState !== 'undefined' && gameState) {
+  // If inside any of the player's homes, also add any extra Placed Furniture the player owns!
+  const playerHomeRooms = new Set(['my-room', 'starter-loft', 'sunny-loft', 'maple-cottage', 'treehouse-villa']);
+  if (playerHomeRooms.has(roomId) && typeof gameState !== 'undefined' && gameState) {
     const ownedNames = new Set([
       ...(gameState.inventory || []).map(i => i.name),
       ...(gameState.birthdayItems || []).map(b => b.name),
@@ -1775,6 +2642,9 @@ const World2D = {
   liveAction: null, // null | { type: 'sleep'|'slide'|'swing'|'drive'|'wash-car', label: string, emoji: string }
   activeDialogue: null, // Active conversation state
   dialogueIndices: {}, // Tracks rotating conversation topic index per NPC
+  askIndices: {}, // Tracks rotating batch of questions YOU can ask each NPC
+  answeredUrgentNpcs: {}, // Tracks which NPCs have had their urgent ❗💬 answered this turn
+  lastUrgentTurnKey: '', // Resets urgent ❗💬 prompts on a new day/age/timeOfDay
   guestNpcId: null, // NPC who accompanied you to a place via dialogue!
   fridgeActionItem: null,
   pizzaToppings: ['sauce', 'cheese'],
@@ -1797,10 +2667,14 @@ const World2D = {
 
     window.addEventListener('keydown', e => {
       if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
-      if (this.activeDialogue && !this.activeDialogue.resolved && ['1', '2', '3'].includes(e.key)) {
-        e.preventDefault();
-        this.selectDialogueOption(parseInt(e.key, 10));
-        return;
+      if (this.activeDialogue && !this.activeDialogue.resolved && ['1', '2', '3', '4', '5'].includes(e.key)) {
+        const num = parseInt(e.key, 10);
+        const opts = (this.activeDialogue.topic && this.activeDialogue.topic.options) || [];
+        if (num >= 1 && num <= opts.length) {
+          e.preventDefault();
+          this.selectDialogueOption(num);
+          return;
+        }
       }
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].includes(e.key)) {
         if (this.stationView) return;
@@ -1820,108 +2694,579 @@ const World2D = {
     const speakerName = npc.id === 'mom' ? 'Mom' : (npc.id === 'dad' ? 'Dad' : npc.name.split(' ')[0]);
     const idx = this.dialogueIndices[npc.id] || 0;
 
+    // If the player is currently GROUNDED and talks to Mom or Dad, show the Grounded Scolding Dialogue!
+    if (gameState && gameState.isGrounded && gameState.groundedDays > 0 && (npc.id === 'mom' || npc.id === 'dad')) {
+      return {
+        prompt: `${speakerName}: You are GROUNDED in your room (${gameState.groundedDays}d left) because you got scolded! What do you have to say for yourself? 😠🚫`,
+        options: [
+          {
+            label: `I'm really sorry ${speakerName}! I promise to behave from now on! 🙏💛`,
+            reply: `${speakerName}: Thank you for apologizing sincerely. I forgive you—you are UNGROUNDED! Come give me a hug! 💛🥰`,
+            ungroundNow: true,
+            stats: { kindness: 10, happiness: 8 }
+          },
+          {
+            label: `I'll clean up my whole room and study at my Desk right now! 🧹📚`,
+            reply: `${speakerName}: That is very responsible! Since you're cleaning up and studying, you are UNGROUNDED! 📚🌟`,
+            ungroundNow: true,
+            targetStation: 'desk',
+            stats: { smarts: 8, kindness: 8, happiness: 6 }
+          },
+          {
+            label: `Okay ${speakerName}, I'll stay in my room and rest quietly in bed 🛏️`,
+            reply: `${speakerName}: Good. Take some time in your room to think about your choices. 🛏️`,
+            stats: { energy: 8, kindness: 4 }
+          },
+          {
+            label: `That's not fair! I won't listen! 😤`,
+            reply: `${speakerName}: Excuse me?! Talking back means +1 EXTRA DAY GROUNDED in your room! 😠🚫`,
+            extraGroundedDay: true,
+            stats: { kindness: -6, happiness: -5 }
+          }
+        ]
+      };
+    }
+
     let topics = [];
     if (npc.id === 'mom') {
       topics = [
         {
           prompt: `Mom: Today we are going to the Ice Cream Shop! 🍦`,
-          targetPlaceId: 'ice-cream-shop',
-          reply1: `Mom: Woohoo! Let's get rainbow sprinkles at the Ice Cream Shop! 🍦💛`,
-          reply2: `Mom: I knew you'd be amazed! Let's head to the Ice Cream Shop right now! 🌟`,
-          reply3: `Mom: Okay sweetie, no problem! We can stay right here and relax instead. 💛`
+          options: [
+            {
+              label: `Yay! Let's go right now! 🎉`,
+              reply: `Mom: Woohoo! Let's head to the Ice Cream Shop together! 🍦💛`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 10, kindness: 6 }
+            },
+            {
+              label: `Wow! Can I stack 3 scoops on a waffle cone? 🤩`,
+              reply: `Mom: You sure can! Let's step right up to the Ice Cream Scoop Counter! 🍨🌟`,
+              targetPlaceId: 'ice-cream-shop',
+              targetStation: 'icecream',
+              stats: { happiness: 12, smarts: 4 }
+            },
+            {
+              label: `Can I get strawberry swirl with rainbow sprinkles? 🍓✨`,
+              reply: `Mom: Strawberry swirl with extra rainbow sprinkles coming right up! 🍓🍦`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 11, kindness: 6, energy: 8 }
+            },
+            {
+              label: `Can we go to the Sunny Playground instead? 🛝`,
+              reply: `Mom: Good idea! Let's go play at the Sunny Playground instead! 🛝☀️`,
+              targetPlaceId: 'playground',
+              stats: { happiness: 10, health: 7 }
+            },
+            {
+              label: `No thank you, let's stay cozy at home 🙏`,
+              reply: `Mom: Okay sweetie, no problem! We can stay right here and relax instead. 💛`,
+              isDecline: true,
+              stats: { kindness: 6, energy: 6 }
+            },
+            {
+              label: `Throw a tantrum & knock over the chairs! 😈 (Get Scolded!)`,
+              reply: `Mom: HEY! Do NOT throw a tantrum! You are SCOLDED and GROUNDED to your bedroom! 😠🚫`,
+              triggerGrounded: 'Mom scolded you for throwing a tantrum and knocking over chairs!',
+              stats: { kindness: -8, happiness: -6 }
+            }
+          ]
         },
         {
-          prompt: `Mom: Today we are going to the Sunny Playground! 🛝`,
-          targetPlaceId: 'playground',
-          reply1: `Mom: Yay! Let's go down the giant yellow slide together! 🛝💛`,
-          reply2: `Mom: It's such a sunny day for the park! Let's go! ☀️`,
-          reply3: `Mom: That's okay sweetie, we can play at the Playground another day! 💛`
+          prompt: `Mom: Are you hungry, sweetie? What would you like from the kitchen? 🍽️`,
+          options: [
+            {
+              label: `Boba Bubble Milk Tea from the bottom shelf! 🧋`,
+              reply: `Mom: Coming right up! Fresh Boba Bubble Milk Tea with chewy tapioca pearls! 🧋💛`,
+              consumeItem: 'boba',
+              stats: { happiness: 8, kindness: 5 }
+            },
+            {
+              label: `A bowl of your Warm Chicken Soup, please! 🍲`,
+              reply: `Mom: Here's a steaming bowl of my homemade Chicken Soup! 🍲💚`,
+              consumeItem: 'soup',
+              stats: { health: 6, kindness: 6 }
+            },
+            {
+              label: `Fluffy Honey Berry Pancakes! 🥞`,
+              reply: `Mom: Fresh off the griddle with warm honey and berries! Enjoy! 🥞✨`,
+              consumeItem: 'pancakes',
+              stats: { happiness: 8, kindness: 5 }
+            },
+            {
+              label: `Let's open the Fridge so I can pick myself! 🧊`,
+              reply: `Mom: Go right ahead sweetie, both blue shelves are fully stocked! 🧊🌟`,
+              targetStation: 'fridge',
+              stats: { happiness: 5, kindness: 4 }
+            },
+            {
+              label: `I'm full right now, no thank you Mom! 🙏`,
+              reply: `Mom: Okay sweetie, snacks are in the Fridge whenever you get hungry! 💛`,
+              isDecline: true,
+              stats: { kindness: 6, energy: 5 }
+            }
+          ]
         },
         {
-          prompt: `Mom: I stocked the Fridge with Boba Milk Tea and warm soup! Want some? 🧋🍲`,
-          targetStation: 'fridge',
-          reply1: `Mom: Yay! Help yourself to the Boba Milk Tea on the bottom shelf! 🧋`,
-          reply2: `Mom: Enjoy, sweetie! Fresh Boba Tea and soup are waiting in the Fridge! 🌟`,
-          reply3: `Mom: Okay sweetie, it'll be in the Fridge whenever you get hungry! 💛`
+          prompt: `Mom: The sun is shining! What do you want to play at the Sunny Playground today? 🛝☀️`,
+          options: [
+            {
+              label: `Zoom down the Giant Yellow Slide! 🛝`,
+              reply: `Mom: Wheee! Look how fast you go down the Giant Slide! 🛝💛`,
+              targetPlaceId: 'playground',
+              liveAction: 'slide',
+              stats: { happiness: 10, health: 6 }
+            },
+            {
+              label: `Swing super high on the Double Swings! ⛓️`,
+              reply: `Mom: Hold on tight, I'll give you a big push on the Swings! ⛓️✨`,
+              targetPlaceId: 'playground',
+              liveAction: 'swing',
+              stats: { happiness: 10, health: 6 }
+            },
+            {
+              label: `Walk around the park & enjoy the sunshine! 🌳`,
+              reply: `Mom: A lovely park walk together! Look at the butterflies! 🦋☀️`,
+              targetPlaceId: 'playground',
+              stats: { happiness: 10, kindness: 8, health: 5 }
+            },
+            {
+              label: `Can I draw & color at my Study Desk instead? 🎨`,
+              reply: `Mom: Of course! I'd love to see what you draw on your desk pad! 🎨✏️`,
+              targetStation: 'desk',
+              stats: { smarts: 8, happiness: 6, skill: ['art', 6] }
+            },
+            {
+              label: `No thank you, my legs are a little tired 🙏`,
+              reply: `Mom: That's okay sweetie, rest up and we'll go to the park later! 💛`,
+              isDecline: true,
+              stats: { kindness: 5, energy: 8 }
+            }
+          ]
         },
         {
-          prompt: `Mom: Here is $12 pocket money for being such a wonderful kid! 🪙`,
-          bonusMoney: 12,
-          reply1: `Mom: You're so welcome, sweetie! (+$12 Pocket Money!) 💛`,
-          reply2: `Mom: Spend it on something fun or save it up! (+$12 Pocket Money!) 🌟`,
-          reply3: `Mom: Aww, how polite! I'll tuck it in your piggy bank anyway (+$6)! 💛`
+          prompt: `Mom: Here is $15 pocket money for being such a helpful kid! What will you do with it? 🪙`,
+          options: [
+            {
+              label: `Thank you Mom! I'm saving it in my piggy bank! 🐷`,
+              reply: `Mom: So smart and responsible! (+$15 Pocket Money!) 🐷🪙`,
+              stats: { money: 15, smarts: 8, kindness: 8, happiness: 8 }
+            },
+            {
+              label: `Let's go spend it at the Wonder Toy Store! 🧸`,
+              reply: `Mom: Yay! Let's head to the Wonder Toy Store right now! (+$15!) 🧸🌟`,
+              targetPlaceId: 'toy-store',
+              stats: { money: 15, happiness: 12, kindness: 6 }
+            },
+            {
+              label: `I want to buy new furniture for My Bedroom! 🪑`,
+              reply: `Mom: Ooh, let's open the Room Furniture Catalog and decorate! (+$15!) 🪑✨`,
+              openModal: 'furniture',
+              stats: { money: 15, happiness: 10, skill: ['art', 5] }
+            },
+            {
+              label: `You keep half, Mom — let's share it! 💛`,
+              reply: `Mom: Aww, you have the sweetest heart in the world! (+$10 & +15 Kindness!) 💛🥰`,
+              stats: { money: 10, kindness: 15, happiness: 12 }
+            }
+          ]
+        },
+        {
+          prompt: `Mom: How are you feeling today, sweetie? Do you need anything? 💛`,
+          options: [
+            {
+              label: `I feel super happy! Best day ever! 😊🌟`,
+              reply: `Mom: Seeing your big smile makes my whole day brighter! 💛🌟`,
+              stats: { happiness: 12, health: 6, kindness: 6 }
+            },
+            {
+              label: `I'm a little sleepy, can I take a cozy nap in bed? 😴`,
+              reply: `Mom: Tuck right into your cozy quilt, sweetie. Sweet dreams! 🛏️💤`,
+              liveAction: 'sleep',
+              stats: { happiness: 6, health: 6 }
+            },
+            {
+              label: `Can you help me pick a fresh outfit from my Wardrobe? 👕`,
+              reply: `Mom: Let's open your Wardrobe Closet and try on some cute outfits! 👕✨`,
+              targetStation: 'wardrobe',
+              stats: { happiness: 8, kindness: 5 }
+            },
+            {
+              label: `Can you tell me a story before I go play? 📖`,
+              reply: `Mom: Once upon a time in SunnyDays town... we had the greatest adventure! 📖✨`,
+              stats: { smarts: 10, happiness: 10, kindness: 6 }
+            }
+          ]
+        },
+        {
+          prompt: `Mom: Did you pack your bag for today, sweetie? What are you putting inside? 🎒`,
+          options: [
+            {
+              label: `Let's open my Backpack right now and pack it! 🎒`,
+              reply: `Mom: Great idea! Let's pick 6 items for your backpack pockets! 🎒✨`,
+              targetStation: 'bag',
+              stats: { smarts: 6, happiness: 8 }
+            },
+            {
+              label: `I packed my Notebook, Sketchbook & Boba Milk Tea! 📓🧋`,
+              reply: `Mom: Prepared for studying AND snacking! I'm so proud of you! 📓🧋💛`,
+              targetStation: 'bag',
+              stats: { smarts: 10, happiness: 10, kindness: 6 }
+            },
+            {
+              label: `Can you help me pack a Grilled Cheese Lunchbox & Apple? 🍱🍎`,
+              reply: `Mom: Just tucked a warm Grilled Cheese Lunchbox and Apple into your bag! 🍱🍎`,
+              targetStation: 'bag',
+              stats: { energy: 10, health: 8, kindness: 8 }
+            },
+            {
+              label: `No thank you, I don't need my bag right now 🙏`,
+              reply: `Mom: Okay sweetie, your backpack is right by your bed whenever you need it! 💛`,
+              isDecline: true,
+              stats: { kindness: 5, energy: 5 }
+            }
+          ]
         }
       ];
     } else if (npc.id === 'dad') {
       topics = [
         {
-          prompt: `Dad: Today we are going to the Pizza Place! 🍕`,
-          targetPlaceId: 'pizza-place',
-          reply1: `Dad: Awesome! Let's bake a hot pepperoni pizza in the brick oven! 🍕🔥`,
-          reply2: `Dad: Best pizza in town, coming right up! Let's go! 🌟`,
-          reply3: `Dad: No worries kiddo, we'll grab pizza another time! 💙`
+          prompt: `Dad: Today we are going to the Pizza Place! What kind of pizza should we get? 🍕`,
+          options: [
+            {
+              label: `Yay! Let's bake our own Pepperoni & Cheese Pizza! 🍕🔥`,
+              reply: `Dad: Awesome! Step up to the Brick Pizza Oven and pile on the toppings! 🍕🔥`,
+              targetPlaceId: 'pizza-place',
+              targetStation: 'pizza',
+              stats: { happiness: 12, kindness: 6, skill: ['cooking', 6] }
+            },
+            {
+              label: `Wow! Supreme Pizza with mushrooms, peppers & olives! 🍄🫑`,
+              reply: `Dad: Now THAT is a gourmet pizza! Let's head into the Pizza Place! 🍕🌟`,
+              targetPlaceId: 'pizza-place',
+              stats: { happiness: 11, energy: 12, skill: ['cooking', 5] }
+            },
+            {
+              label: `Extra cheesy Garlic Bread & a big slice at the booth! 🧀`,
+              reply: `Dad: Save me a piece of garlic bread! Let's grab our booth! 🍽️💙`,
+              targetPlaceId: 'pizza-place',
+              stats: { happiness: 10, kindness: 8, energy: 10 }
+            },
+            {
+              label: `Can we go to the Ice Cream Shop instead? 🍦`,
+              reply: `Dad: Dessert first? Don't tell Mom—let's go to the Ice Cream Shop! 🍦😄`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 12, kindness: 6 }
+            },
+            {
+              label: `No thank you Dad, maybe tomorrow night! 🙏`,
+              reply: `Dad: No worries kiddo, we'll do pizza night whenever you're ready! 💙`,
+              isDecline: true,
+              stats: { kindness: 6, energy: 5 }
+            }
+          ]
         },
         {
-          prompt: `Dad: Today we are taking the Family Car for a joyride! 🚗`,
-          targetPlaceId: 'family-car',
-          reply1: `Dad: Buckle up, kiddo! Road-trip music is on! 🚗🎶`,
-          reply2: `Dad: Wait till you hear the engine purr! Let's roll! 🚙`,
-          reply3: `Dad: Alright kiddo, the keys will be ready whenever you want a ride! 💙`
+          prompt: `Dad: I've got the Family SUV keys! What should we do with the car today? 🚗`,
+          options: [
+            {
+              label: `Yay! Let's go for a joyride with road-trip music! 🚗🎶`,
+              reply: `Dad: Buckle up, kiddo! Windows down and favorite songs on the radio! 🚗🎶`,
+              targetPlaceId: 'family-car',
+              liveAction: 'drive',
+              stats: { happiness: 12, kindness: 6 }
+            },
+            {
+              label: `Let's wash the car with the soapy sponge for $8 allowance! 🧽🫧`,
+              reply: `Dad: Deal! Grab the sudsy bucket—here's $8 for making the SUV sparkle! 🧽🪙`,
+              targetPlaceId: 'family-car',
+              liveAction: 'wash-car',
+              stats: { happiness: 8, kindness: 8 }
+            },
+            {
+              label: `Drive us over to the Wonder Toy Store! 🧸`,
+              reply: `Dad: Next stop: Wonder Toy Store! Hop in! 🚙🧸`,
+              targetPlaceId: 'toy-store',
+              stats: { happiness: 12, kindness: 6 }
+            },
+            {
+              label: `No thank you, I'll hang out at home for now 🙏`,
+              reply: `Dad: Alright kiddo, the keys are on the hook whenever you want a ride! 💙`,
+              isDecline: true,
+              stats: { kindness: 5, energy: 6 }
+            }
+          ]
         },
         {
-          prompt: `Dad: Today we are going to the Wonder Toy Store! 🧸`,
-          targetPlaceId: 'toy-store',
-          reply1: `Dad: Yay! Let's check out the plushies, LEGOs, and toy train! 🧸🚂`,
-          reply2: `Dad: You're gonna love the giant dinosaur display! Let's go! 🦖`,
-          reply3: `Dad: Okay kiddo, maybe next weekend! 💙`
+          prompt: `Dad: How are your studies and hobbies going, kiddo? Want to practice together? 📚`,
+          options: [
+            {
+              label: `Let's draw & study at my Desk right now! ✏️🎨`,
+              reply: `Dad: That's my champ! Let's open your Study Desk and create something awesome! ✏️🌟`,
+              targetStation: 'desk',
+              stats: { smarts: 10, happiness: 8, skill: ['art', 6] }
+            },
+            {
+              label: `Quiz me on science, space, and math facts! 🔬🪐`,
+              reply: `Dad: You got every single question right! You're a total genius, kiddo! 🧠🏆`,
+              stats: { smarts: 14, happiness: 8, skill: ['tech', 6] }
+            },
+            {
+              label: `Let's visit Hometown School together! 🏫`,
+              reply: `Dad: Let's head over to Hometown School and check out the science table! 🏫🔬`,
+              targetPlaceId: 'school',
+              stats: { smarts: 10, happiness: 8 }
+            },
+            {
+              label: `My brain is tired—tell me your funniest Dad Joke instead! 😂`,
+              reply: `Dad: Why did the cookie go to the nurse? Because it felt crummy! Bwahaha! 🍪😂`,
+              stats: { happiness: 14, kindness: 8, energy: 5 }
+            }
+          ]
+        },
+        {
+          prompt: `Dad: If we visit the Wonder Toy Store, which toy display do you want to see first? 🧸`,
+          options: [
+            {
+              label: `The Giant Teddy Bear & Plushie Shelves! 🧸`,
+              reply: `Dad: Those plushies are almost bigger than you! Let's go see them! 🧸💙`,
+              targetPlaceId: 'toy-store',
+              stats: { happiness: 12, kindness: 8 }
+            },
+            {
+              label: `The LEGO Building Table & Ride-On Toy Train! 🚂🧱`,
+              reply: `Dad: All aboard the Toy Store Express! Let's build a giant LEGO castle too! 🚂🧱`,
+              targetPlaceId: 'toy-store',
+              stats: { happiness: 11, smarts: 10, skill: ['art', 5] }
+            },
+            {
+              label: `The Roaring Green T-Rex Dinosaur! 🦖`,
+              reply: `Dad: ROOOAR! Wait till you press the button on that T-Rex! Let's go! 🦖🌟`,
+              targetPlaceId: 'toy-store',
+              stats: { happiness: 14, smarts: 6 }
+            },
+            {
+              label: `No thank you, I have plenty of toys right here 🙏`,
+              reply: `Dad: Wow, so grateful and content! I'm proud of you, kiddo! 💙`,
+              isDecline: true,
+              stats: { kindness: 10, energy: 5 }
+            }
+          ]
         }
       ];
     } else if (npc.isSibling) {
       topics = [
         {
-          prompt: `${speakerName}: Today we are going to the Sunny Playground! Race you there! 🛝`,
-          targetPlaceId: 'playground',
-          reply1: `${speakerName}: Yay! Last one to the giant slide is a rotten egg! 🛝🏃`,
-          reply2: `${speakerName}: Watch how high I can swing! Come on! 🌟`,
-          reply3: `${speakerName}: Okay, we can hang out here instead! 💛`
+          prompt: `${speakerName}: Today we are going to the Sunny Playground! What should we play first? 🛝`,
+          options: [
+            {
+              label: `Yay! Race you to the Giant Yellow Slide! 🛝🏃`,
+              reply: `${speakerName}: Last one down the Giant Slide is a rotten egg! Go go go! 🛝🏃`,
+              targetPlaceId: 'playground',
+              liveAction: 'slide',
+              stats: { happiness: 11, health: 6, skill: ['athletics', 7] }
+            },
+            {
+              label: `Wow! Let's see who can swing higher on the Swings! ⛓️✨`,
+              reply: `${speakerName}: Bet I can touch the clouds on the Swing Set! Come on! ⛓️☁️`,
+              targetPlaceId: 'playground',
+              liveAction: 'swing',
+              stats: { happiness: 12, health: 6, skill: ['athletics', 6] }
+            },
+            {
+              label: `Let's play tag and hide-and-seek on the grass! 🌳`,
+              reply: `${speakerName}: You're IT! Try and catch me at the Playground! 🌳😄`,
+              targetPlaceId: 'playground',
+              stats: { happiness: 12, health: 8, skill: ['athletics', 8] }
+            },
+            {
+              label: `No thank you, let's hang out at home instead 🙏`,
+              reply: `${speakerName}: Cool with me! We can chill right here instead! 💛`,
+              isDecline: true,
+              stats: { kindness: 6, energy: 6 }
+            }
+          ]
         },
         {
-          prompt: `${speakerName}: Today we are going to the Ice Cream Shop! 🍦`,
-          targetPlaceId: 'ice-cream-shop',
-          reply1: `${speakerName}: Yay! Let's stack 4 scoops on a waffle cone! 🍨`,
-          reply2: `${speakerName}: They have 24 flavors! Let's go! 🍦`,
-          reply3: `${speakerName}: Okay, more ice cream for later then! 😋`
+          prompt: `${speakerName}: I'm craving treats! Should we hit the Corner Snack Store or Ice Cream Shop? 🍿🍦`,
+          options: [
+            {
+              label: `Corner Snack Store for slushies & warm pretzels! 🥨🥤`,
+              reply: `${speakerName}: Yes!! Blue raspberry slushies and salted pretzels, let's go! 🥨🥤`,
+              targetPlaceId: 'snack-store',
+              stats: { happiness: 12, energy: 10 }
+            },
+            {
+              label: `Ice Cream Shop for giant waffle cones! 🍦🍨`,
+              reply: `${speakerName}: Yay! Let's stack 3 scoops at the Ice Cream Shop! 🍦🌟`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 12, energy: 10 }
+            },
+            {
+              label: `Let's raid our own Fridge for Boba Bubble Milk Tea! 🧋`,
+              reply: `${speakerName}: Genius move! Mom's Boba Tea on the bottom shelf is the best! 🧋✨`,
+              targetStation: 'fridge',
+              stats: { happiness: 10, smarts: 5 }
+            },
+            {
+              label: `No thank you, I'm not hungry right now 🙏`,
+              reply: `${speakerName}: More snacks for later then! 👍`,
+              isDecline: true,
+              stats: { kindness: 5, energy: 5 }
+            }
+          ]
         },
         {
-          prompt: `${speakerName}: Today we are going to the Corner Snack Store! 🍿`,
-          targetPlaceId: 'snack-store',
-          reply1: `${speakerName}: Yay! Let's get smoothies and warm pretzels! 🥨🥤`,
-          reply2: `${speakerName}: Awesome! Come on! 🍿`,
-          reply3: `${speakerName}: No problem, we can chill at home! 👍`
+          prompt: `${speakerName}: Hey! Want to play video games, draw comics, or practice music together? 🎮🎨`,
+          options: [
+            {
+              label: `Let's team up in co-op video games! 🎮🏆`,
+              reply: `${speakerName}: We beat the high score together! Best sibling duo ever! 🎮🔥`,
+              stats: { happiness: 12, smarts: 6, skill: ['tech', 8] }
+            },
+            {
+              label: `Let's draw superhero comics at my Study Desk! 🎨✏️`,
+              reply: `${speakerName}: Whoa, your drawings look awesome! Let's color them in! 🎨🌟`,
+              targetStation: 'desk',
+              stats: { happiness: 10, smarts: 6, skill: ['art', 8] }
+            },
+            {
+              label: `Let's put on a living-room music concert! 🎸🎤`,
+              reply: `${speakerName}: One, two, three, rock on!! Mom and Dad cheered for our song! 🎸🎶`,
+              stats: { happiness: 12, kindness: 6, skill: ['music', 9] }
+            },
+            {
+              label: `Maybe in a little bit, I'm resting right now 😊`,
+              reply: `${speakerName}: Anytime! Just call me when you're ready to play! 💛`,
+              isDecline: true,
+              stats: { kindness: 6, energy: 6 }
+            }
+          ]
         }
       ];
     } else {
       topics = [
         {
-          prompt: `${speakerName}: Today we are going to the Ice Cream Shop! 🍦`,
-          targetPlaceId: 'ice-cream-shop',
-          reply1: `${speakerName}: Yay! Bestie ice cream trip! Let's go! 🍦💛`,
-          reply2: `${speakerName}: It's gonna be so much fun! Let's head over! 🌟`,
-          reply3: `${speakerName}: No worries, we can go next time! 😊`
+          prompt: `${speakerName}: Today we are going to the Ice Cream Shop! Which flavor are you getting? 🍦`,
+          options: [
+            {
+              label: `Yay! Strawberry Swirl with rainbow sprinkles! 🍓✨`,
+              reply: `${speakerName}: Yum!! Bestie ice cream trip—let's go get Strawberry Swirl! 🍓🍦`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 12, kindness: 8, energy: 8 }
+            },
+            {
+              label: `Wow! Mint Chocolate Chip & Vanilla Bean! 🍃🍫`,
+              reply: `${speakerName}: Classic combo! Let's scoop our cones right now! 🍨🌟`,
+              targetPlaceId: 'ice-cream-shop',
+              targetStation: 'icecream',
+              stats: { happiness: 12, smarts: 5, energy: 8 }
+            },
+            {
+              label: `Let's get matching 3-scoop waffle cones together! 🍨💛`,
+              reply: `${speakerName}: Matching bestie waffle cones!! Let's head to the Ice Cream Shop! 🍨💛`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 14, kindness: 10, energy: 8 }
+            },
+            {
+              label: `No thank you, let's go another day 🙏`,
+              reply: `${speakerName}: No worries at all! Next time my treat! 😊`,
+              isDecline: true,
+              stats: { kindness: 6, energy: 5 }
+            }
+          ]
         },
         {
-          prompt: `${speakerName}: Today we are going to my house (Best Friend's Home)! 🌟`,
-          targetPlaceId: 'best-friend-home',
-          reply1: `${speakerName}: Yay! Let's play video games and make pancakes! 🎮🥞`,
-          reply2: `${speakerName}: Wait till you see my room! Let's go! 🏡`,
-          reply3: `${speakerName}: Okay, anytime you want to visit, my door is open! 💛`
+          prompt: `${speakerName}: Come over to my house (Best Friend's Home)! What should we do first? 🌟🏡`,
+          options: [
+            {
+              label: `Play co-op games on your big TV & sectional couch! 🎮🛋️`,
+              reply: `${speakerName}: Grab player two's controller! My living room is ready! 🎮🌟`,
+              targetPlaceId: 'best-friend-home',
+              stats: { happiness: 13, kindness: 8, skill: ['tech', 7] }
+            },
+            {
+              label: `Make fluffy pancakes & smoothies in your kitchen! 🥞🥤`,
+              reply: `${speakerName}: Bestie pancake party!! Let's head to my kitchen! 🥞🍓`,
+              targetPlaceId: 'best-friend-home',
+              stats: { happiness: 12, energy: 12, skill: ['cooking', 8] }
+            },
+            {
+              label: `Tell funny stories & plan our future dream house! 🏡✨`,
+              reply: `${speakerName}: When we turn 21 we're going to have the coolest house ever! 🏡💛`,
+              targetPlaceId: 'best-friend-home',
+              stats: { happiness: 14, kindness: 10 }
+            },
+            {
+              label: `Come hang out in My Bedroom instead! 🛏️`,
+              reply: `${speakerName}: Awesome! I love hanging out in your room! Let's go! 🛏️🌟`,
+              targetPlaceId: 'my-room',
+              stats: { happiness: 11, kindness: 8 }
+            },
+            {
+              label: `No thank you, I need to rest up first 🙏`,
+              reply: `${speakerName}: Anytime you want to visit, my door is always open! 💛`,
+              isDecline: true,
+              stats: { kindness: 6, energy: 6 }
+            }
+          ]
         },
         {
-          prompt: `${speakerName}: Today we are going to Sunnyvale Mall! 🛍️`,
-          targetPlaceId: 'mall',
-          reply1: `${speakerName}: Yay! Let's take photos in the Mall Photo Booth! 📸`,
-          reply2: `${speakerName}: The Mall fountain looks amazing today! Let's go! ⛲`,
-          reply3: `${speakerName}: Sounds good, we'll hang out here instead! 🤝`
+          prompt: `${speakerName}: Today we are going to Sunnyvale Mall! Where should we stop first? 🛍️`,
+          options: [
+            {
+              label: `Take silly bestie photos in the Instant Photo Booth! 📸✨`,
+              reply: `${speakerName}: Cheese!! We get to keep the photo strip forever! 📸💛`,
+              targetPlaceId: 'mall',
+              stats: { happiness: 14, kindness: 8, skill: ['art', 6] }
+            },
+            {
+              label: `Toss a lucky coin into the Mall Water Fountain! ⛲🪙`,
+              reply: `${speakerName}: Splash! I wished that we stay best friends forever! ⛲🌟`,
+              targetPlaceId: 'mall',
+              stats: { happiness: 12, kindness: 10 }
+            },
+            {
+              label: `Check out the trendy outfits at the Fashion Boutique! 👗🕶️`,
+              reply: `${speakerName}: You look like a total superstar in those outfits! 👗✨`,
+              targetPlaceId: 'mall',
+              stats: { happiness: 12, skill: ['art', 7] }
+            },
+            {
+              label: `No thank you, let's save the Mall trip for later 🙏`,
+              reply: `${speakerName}: Sounds good, we'll hang out right here instead! 🤝`,
+              isDecline: true,
+              stats: { kindness: 5, energy: 5 }
+            }
+          ]
+        },
+        {
+          prompt: `${speakerName}: Hey bestie! Want to study at School, grab Pizza, or play at the Park? 🎒🌟`,
+          options: [
+            {
+              label: `Let's team up at Hometown School & ace our project! 🏫📚`,
+              reply: `${speakerName}: Gold stars for both of us! Best study partners ever! 🏫🌟`,
+              targetPlaceId: 'school',
+              stats: { smarts: 12, happiness: 10 }
+            },
+            {
+              label: `Let's grab hot cheesy slices at the Pizza Place! 🍕`,
+              reply: `${speakerName}: Yes!! Nothing beats a hot slice at the Pizza Place! 🍕🔥`,
+              targetPlaceId: 'pizza-place',
+              stats: { happiness: 12, energy: 10 }
+            },
+            {
+              label: `Let's race over to the Sunny Playground! 🛝`,
+              reply: `${speakerName}: Last one to the swings has to push! Come on! 🛝☀️`,
+              targetPlaceId: 'playground',
+              stats: { happiness: 12, health: 8, skill: ['athletics', 7] }
+            },
+            {
+              label: `Let's just chat and share secrets right here! 💬💛`,
+              reply: `${speakerName}: Talking with you always makes my day 100x better! 💬🥰`,
+              stats: { happiness: 12, kindness: 10 }
+            }
+          ]
         }
       ];
     }
@@ -1929,7 +3274,241 @@ const World2D = {
     return topics[idx % topics.length];
   },
 
-  openDialogueWith(npcId) {
+  getAskTopicForNpc(npc) {
+    const speakerName = npc.id === 'mom' ? 'Mom' : (npc.id === 'dad' ? 'Dad' : npc.name.split(' ')[0]);
+    const idx = this.askIndices[npc.id] || 0;
+    const playerName = (gameState && gameState.name) ? gameState.name : 'You';
+
+    let batches = [];
+    if (npc.id === 'mom') {
+      batches = [
+        {
+          prompt: `🙋 ${playerName}: What do you want to ask Mom?`,
+          isAskMode: true,
+          options: [
+            {
+              label: `"Mom, can we go to the Ice Cream Shop today? 🍦"`,
+              reply: `Mom: Yay! Of course sweetie, let's go get ice cream cones right now! 🍦💛`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 12, kindness: 6 }
+            },
+            {
+              label: `"Mom, can I have $15 pocket money please? 🪙"`,
+              reply: `Mom: Since you asked so politely, here is $15 pocket money! 🪙💛`,
+              stats: { money: 15, happiness: 10, kindness: 8 }
+            },
+            {
+              label: `"Mom, I'm hungry! Can I have Boba Bubble Milk Tea? 🧋"`,
+              reply: `Mom: Coming right up! Fresh Boba Bubble Milk Tea from the bottom shelf! 🧋✨`,
+              consumeItem: 'boba',
+              stats: { happiness: 10, kindness: 6 }
+            },
+            {
+              label: `"Mom, can we go play on the Slide at the Sunny Playground? 🛝"`,
+              reply: `Mom: Let's go! Put your shoes on, we're heading to the Sunny Playground! 🛝☀️`,
+              targetPlaceId: 'playground',
+              liveAction: 'slide',
+              stats: { happiness: 12, health: 7 }
+            },
+            {
+              label: `"Mom, can we go visit the Wonder Toy Store? 🧸"`,
+              reply: `Mom: Yes! Let's go look at the plushies, LEGOs, and toy train together! 🧸🚂`,
+              targetPlaceId: 'toy-store',
+              stats: { happiness: 12, kindness: 6 }
+            }
+          ]
+        },
+        {
+          prompt: `🙋 ${playerName}: Ask Mom another question!`,
+          isAskMode: true,
+          options: [
+            {
+              label: `"Mom, can we buy new furniture for My Bedroom? 🪑"`,
+              reply: `Mom: Ooh, yes! Here's $10 to help—let's open the Room Furniture Catalog! 🪑✨`,
+              openModal: 'furniture',
+              stats: { money: 10, happiness: 10, skill: ['art', 5] }
+            },
+            {
+              label: `"Mom, can you make me a bowl of Warm Chicken Soup? 🍲"`,
+              reply: `Mom: Here's a hot, comforting bowl of my homemade Chicken Soup! 🍲💚`,
+              consumeItem: 'soup',
+              stats: { health: 10, kindness: 6 }
+            },
+            {
+              label: `"Mom, can you help me draw & study at my Desk? 🎨✏️"`,
+              reply: `Mom: I'd love to! Let's sit at your Study Desk and draw together! 🎨🌟`,
+              targetStation: 'desk',
+              stats: { smarts: 10, happiness: 8, skill: ['art', 6] }
+            },
+            {
+              label: `"Mom, can we go to the Pizza Place for dinner? 🍕"`,
+              reply: `Mom: Pizza night sounds delicious! Let's head to the Pizza Place! 🍕🔥`,
+              targetPlaceId: 'pizza-place',
+              stats: { happiness: 12, energy: 10 }
+            },
+            {
+              label: `"Mom, how was your day today? I love you! 💛"`,
+              reply: `Mom: Aww, my day is wonderful now that you asked! I love you so much, sweetie! 🥰💛`,
+              stats: { happiness: 15, kindness: 15, health: 6 }
+            }
+          ]
+        }
+      ];
+    } else if (npc.id === 'dad') {
+      batches = [
+        {
+          prompt: `🙋 ${playerName}: What do you want to ask Dad?`,
+          isAskMode: true,
+          options: [
+            {
+              label: `"Dad, can we go bake a pizza at the Pizza Place? 🍕"`,
+              reply: `Dad: You bet, kiddo! Let's fire up the Brick Pizza Oven right now! 🍕🔥`,
+              targetPlaceId: 'pizza-place',
+              targetStation: 'pizza',
+              stats: { happiness: 12, kindness: 6, skill: ['cooking', 6] }
+            },
+            {
+              label: `"Dad, can you take me for a joyride in the Family SUV? 🚗"`,
+              reply: `Dad: Hop in! Road-trip tunes are cranked up! Beep beep! 🚗🎶`,
+              targetPlaceId: 'family-car',
+              liveAction: 'drive',
+              stats: { happiness: 12, kindness: 6 }
+            },
+            {
+              label: `"Dad, can I wash the car for $10 allowance money? 🧽🪙"`,
+              reply: `Dad: Deal! Grab the soapy sponge & hose—here's $10 for helping out! 🧽🪙`,
+              targetPlaceId: 'family-car',
+              liveAction: 'wash-car',
+              stats: { money: 2, happiness: 10, kindness: 8 }
+            },
+            {
+              label: `"Dad, can we go see the Roaring T-Rex at the Toy Store? 🦖"`,
+              reply: `Dad: ROOOAR! Let's head straight to the Wonder Toy Store! 🦖🧸`,
+              targetPlaceId: 'toy-store',
+              stats: { happiness: 14, smarts: 5 }
+            },
+            {
+              label: `"Dad, can you tell me your funniest Dad Joke? 😂"`,
+              reply: `Dad: What do you call cheese that isn't yours? Nacho cheese! Bwahaha! 🧀😂`,
+              stats: { happiness: 15, kindness: 8 }
+            }
+          ]
+        },
+        {
+          prompt: `🙋 ${playerName}: Ask Dad another question!`,
+          isAskMode: true,
+          options: [
+            {
+              label: `"Dad, can I have $15 allowance for my savings? 🪙"`,
+              reply: `Dad: Sure thing, champ! Here's $15 for your piggy bank! 🪙💙`,
+              stats: { money: 15, happiness: 10, smarts: 6 }
+            },
+            {
+              label: `"Dad, can we go get ice cream cones together? 🍦"`,
+              reply: `Dad: Double-scoop waffle cones, coming right up! Let's go! 🍦🌟`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 12, kindness: 6 }
+            },
+            {
+              label: `"Dad, can you help me with my homework at School? 🏫📚"`,
+              reply: `Dad: Let's head to Hometown School and ace those lessons together! 🏫🏆`,
+              targetPlaceId: 'school',
+              stats: { smarts: 14, happiness: 8 }
+            },
+            {
+              label: `"Dad, can you push me on the Playground Swings? ⛓️"`,
+              reply: `Dad: Hold on tight, I'll push you all the way to the clouds! ⛓️☀️`,
+              targetPlaceId: 'playground',
+              liveAction: 'swing',
+              stats: { happiness: 12, health: 8 }
+            }
+          ]
+        }
+      ];
+    } else if (npc.isSibling) {
+      batches = [
+        {
+          prompt: `🙋 ${playerName}: What do you want to ask ${speakerName}?`,
+          isAskMode: true,
+          options: [
+            {
+              label: `"Can we race down the Giant Slide at the Playground? 🛝"`,
+              reply: `${speakerName}: You're on!! First one down the Giant Slide wins! 🛝🏃`,
+              targetPlaceId: 'playground',
+              liveAction: 'slide',
+              stats: { happiness: 12, health: 6, skill: ['athletics', 7] }
+            },
+            {
+              label: `"Can we get slushies & pretzels at the Corner Snack Store? 🥨🥤"`,
+              reply: `${speakerName}: Yes!! Let's go grab slushies at the Corner Snack Store! 🥨🥤`,
+              targetPlaceId: 'snack-store',
+              stats: { happiness: 12, energy: 10 }
+            },
+            {
+              label: `"Can we go get waffle cones at the Ice Cream Shop? 🍦"`,
+              reply: `${speakerName}: Always down for ice cream! Let's go! 🍦🍨`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 12, energy: 8 }
+            },
+            {
+              label: `"Want to play co-op video games with me? 🎮"`,
+              reply: `${speakerName}: Let's do it! Nobody can beat our sibling team! 🎮🏆`,
+              stats: { happiness: 14, smarts: 6, skill: ['tech', 8] }
+            },
+            {
+              label: `"Can you help me draw a comic at my Study Desk? 🎨"`,
+              reply: `${speakerName}: Sure! Let's open your Study Desk and draw an epic comic! 🎨✏️`,
+              targetStation: 'desk',
+              stats: { happiness: 11, smarts: 6, skill: ['art', 8] }
+            }
+          ]
+        }
+      ];
+    } else {
+      batches = [
+        {
+          prompt: `🙋 ${playerName}: What do you want to ask ${speakerName}?`,
+          isAskMode: true,
+          options: [
+            {
+              label: `"Want to go to the Ice Cream Shop together? 🍦"`,
+              reply: `${speakerName}: Yay!! Bestie ice cream trip! Let's go right now! 🍦💛`,
+              targetPlaceId: 'ice-cream-shop',
+              stats: { happiness: 13, kindness: 8, energy: 8 }
+            },
+            {
+              label: `"Can I come over to your house (Best Friend's Home)? 🏡🌟"`,
+              reply: `${speakerName}: Yes!! Come on in, let's play games and make pancakes! 🏡🥞`,
+              targetPlaceId: 'best-friend-home',
+              stats: { happiness: 14, kindness: 10 }
+            },
+            {
+              label: `"Want to come hang out in My Bedroom? 🛏️"`,
+              reply: `${speakerName}: I'd love to! Your room is so cozy! Let's go! 🛏️✨`,
+              targetPlaceId: 'my-room',
+              stats: { happiness: 12, kindness: 8 }
+            },
+            {
+              label: `"Can we go to Sunnyvale Mall & use the Photo Booth? 🛍️📸"`,
+              reply: `${speakerName}: Bestie photo strip time!! Let's head to Sunnyvale Mall! 📸🌟`,
+              targetPlaceId: 'mall',
+              stats: { happiness: 14, kindness: 8, skill: ['art', 6] }
+            },
+            {
+              label: `"Want to go eat hot cheesy slices at the Pizza Place? 🍕"`,
+              reply: `${speakerName}: Count me in! Let's go to the Pizza Place! 🍕🔥`,
+              targetPlaceId: 'pizza-place',
+              stats: { happiness: 12, energy: 10 }
+            }
+          ]
+        }
+      ];
+    }
+
+    return batches[idx % batches.length];
+  },
+
+  openDialogueWith(npcId, mode = null) {
     if (!gameState) return;
     if (!this.npcs || this.npcs.length === 0) {
       this.rebuildNPCs();
@@ -1938,7 +3517,9 @@ const World2D = {
     if (!npc) return;
 
     SoundFX.pop();
-    const topic = this.getDialogueTopicForNpc(npc);
+    const activeMode = mode || (this.activeDialogue && this.activeDialogue.npcId === npc.id ? this.activeDialogue.mode : 'answer') || 'answer';
+    const topic = activeMode === 'ask' ? this.getAskTopicForNpc(npc) : this.getDialogueTopicForNpc(npc);
+
     this.activeDialogue = {
       npcId: npc.id,
       npcName: npc.name,
@@ -1948,6 +3529,7 @@ const World2D = {
       isSibling: npc.isSibling,
       siblingId: npc.siblingId,
       friendId: npc.friendId,
+      mode: activeMode, // 'answer' (they ask you) or 'ask' (you ask them!)
       topic: topic,
       resolved: false,
       playerChoiceText: null,
@@ -1956,11 +3538,246 @@ const World2D = {
     this.renderWorldDOM();
   },
 
+  switchDialogueMode(newMode) {
+    if (!this.activeDialogue) return;
+    this.openDialogueWith(this.activeDialogue.npcId, newMode);
+  },
+
   nextDialogueTopic() {
     if (!this.activeDialogue) return;
     const npcId = this.activeDialogue.npcId;
-    this.dialogueIndices[npcId] = ((this.dialogueIndices[npcId] || 0) + 1);
-    this.openDialogueWith(npcId);
+    const mode = this.activeDialogue.mode || 'answer';
+    if (mode === 'ask') {
+      this.askIndices[npcId] = ((this.askIndices[npcId] || 0) + 1);
+    } else {
+      this.dialogueIndices[npcId] = ((this.dialogueIndices[npcId] || 0) + 1);
+    }
+    this.openDialogueWith(npcId, mode);
+  },
+
+  submitCustomAskQuestion(ev) {
+    if (ev) ev.preventDefault();
+    if (!gameState || !this.activeDialogue) return;
+    const inputEl = document.getElementById('custom-dialogue-ask-input');
+    if (!inputEl) return;
+    const rawText = (inputEl.value || '').trim();
+    if (!rawText) {
+      showToast('✍️ Type a question to ask first!');
+      return;
+    }
+
+    const dlg = this.activeDialogue;
+    const speakerName = dlg.npcId === 'mom' ? 'Mom' : (dlg.npcId === 'dad' ? 'Dad' : dlg.npcName.split(' ')[0]);
+    const q = rawText.toLowerCase();
+
+    // Build a smart context-aware response + action based on what the player asked!
+    let customOpt = {
+      label: `"${rawText}"`,
+      reply: `${speakerName}: Yes!! That sounds awesome, let's do it together! 🌟💛`,
+      stats: { happiness: 11, kindness: 8 }
+    };
+
+    if (q.includes('ice cream') || q.includes('cone') || q.includes('scoop') || q.includes('sprinkle')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Yay! Yes, let's go to the Ice Cream Shop right now! 🍦💛`,
+        targetPlaceId: 'ice-cream-shop',
+        stats: { happiness: 14, kindness: 8, energy: 8 }
+      };
+    } else if (q.includes('boba') || q.includes('milk tea') || q.includes('bubble tea') || q.includes('tea')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Coming right up! Fresh Boba Bubble Milk Tea from the bottom shelf of the Fridge! 🧋✨`,
+        consumeItem: 'boba',
+        stats: { happiness: 12, kindness: 6 }
+      };
+    } else if (q.includes('soup') || q.includes('sick') || q.includes('medicine')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Here is a warm, healing bowl of homemade Chicken Soup! 🍲💚`,
+        consumeItem: 'soup',
+        stats: { health: 12, kindness: 8 }
+      };
+    } else if (q.includes('pancake') || q.includes('breakfast')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Fluffy Honey Berry Pancakes coming right up! 🥞✨`,
+        consumeItem: 'pancakes',
+        stats: { happiness: 12, kindness: 6 }
+      };
+    } else if (q.includes('hungry') || q.includes('food') || q.includes('eat') || q.includes('fridge') || q.includes('lunch') || q.includes('dinner')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's open the Fridge—both blue shelves are stocked with Boba Tea, Soup, and Pancakes! 🧊🍽️`,
+        targetStation: 'fridge',
+        stats: { happiness: 10, kindness: 6 }
+      };
+    } else if (q.includes('money') || q.includes('allowance') || q.includes('dollar') || q.includes('cash') || q.includes('coin') || q.includes('$')) {
+      const amt = (dlg.npcId === 'mom' || dlg.npcId === 'dad') ? 15 : 6;
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Since you asked so nicely, here is $${amt} pocket money! 🪙💛`,
+        stats: { money: amt, happiness: 12, kindness: 8 }
+      };
+    } else if (q.includes('pizza') || q.includes('pepperoni')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Pizza time!! Let's head to the Pizza Place together! 🍕🔥`,
+        targetPlaceId: 'pizza-place',
+        stats: { happiness: 13, energy: 10 }
+      };
+    } else if (q.includes('playground') || q.includes('park') || q.includes('slide') || q.includes('swing')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Yes! Let's go play at the Sunny Playground right now! 🛝☀️`,
+        targetPlaceId: 'playground',
+        liveAction: q.includes('swing') ? 'swing' : (q.includes('slide') ? 'slide' : null),
+        stats: { happiness: 13, health: 8 }
+      };
+    } else if (q.includes('toy') || q.includes('plush') || q.includes('teddy') || q.includes('lego') || q.includes('dino') || q.includes('t-rex')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Woohoo! Let's go explore the Wonder Toy Store together! 🧸🦖`,
+        targetPlaceId: 'toy-store',
+        stats: { happiness: 14, kindness: 6 }
+      };
+    } else if (q.includes('car') || q.includes('drive') || q.includes('ride') || q.includes('suv') || q.includes('wash')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Grab the keys! Let's head out to the Family SUV! 🚗🎶`,
+        targetPlaceId: 'family-car',
+        liveAction: q.includes('wash') ? 'wash-car' : 'drive',
+        stats: { happiness: 12, kindness: 6 }
+      };
+    } else if (q.includes('gym') || q.includes('workout') || q.includes('work out') || q.includes('exercise') || q.includes('weights') || q.includes('treadmill')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's go work out at Powerhouse Fitness Gym right now! 💪🏋️`,
+        targetPlaceId: 'gym',
+        stats: { health: 12, happiness: 10, skill: ['athletics', 12] }
+      };
+    } else if (q.includes('snack') || q.includes('slushie') || q.includes('pretzel')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's go grab slushies and warm pretzels at the Corner Snack Store! 🍿🥤`,
+        targetPlaceId: 'snack-store',
+        stats: { happiness: 12, energy: 10 }
+      };
+    } else if (q.includes('mall') || q.includes('photo') || q.includes('fountain') || q.includes('boutique')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's head over to Sunnyvale Mall right now! 🛍️📸`,
+        targetPlaceId: 'mall',
+        stats: { happiness: 13, kindness: 8 }
+      };
+    } else if (q.includes('school') || q.includes('homework') || q.includes('teacher') || q.includes('class')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's go to Hometown School and learn something awesome! 🏫📚`,
+        targetPlaceId: 'school',
+        stats: { smarts: 13, happiness: 9 }
+      };
+    } else if (q.includes('draw') || q.includes('desk') || q.includes('study') || q.includes('art')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's open your Study & Drawing Desk! 🎨✏️`,
+        targetStation: 'desk',
+        stats: { smarts: 10, happiness: 10, skill: ['art', 7] }
+      };
+    } else if (q.includes('bag') || q.includes('pack') || q.includes('backpack')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's open your Backpack and pack your 6 pocket slots! 🎒✨`,
+        targetStation: 'bag',
+        stats: { smarts: 8, happiness: 10, kindness: 6 }
+      };
+    } else if (q.includes('furniture') || q.includes('decorate') || q.includes('chair') || q.includes('tv')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Let's open the Room Furniture Catalog and pick out new decor! 🪑✨`,
+        openModal: 'furniture',
+        stats: { happiness: 11, kindness: 6 }
+      };
+    } else if (q.includes('best friend') || q.includes('your house') || q.includes('sleepover')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Come on over to Best Friend's Home! 🏡🌟`,
+        targetPlaceId: 'best-friend-home',
+        stats: { happiness: 14, kindness: 10 }
+      };
+    } else if (q.includes('sleep') || q.includes('nap') || q.includes('tired') || q.includes('bed')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Hop into your cozy bed for a rest! Sweet dreams! 🛏️💤`,
+        liveAction: 'sleep',
+        stats: { happiness: 8, health: 8 }
+      };
+    } else if (q.includes('sorry') || q.includes('apologize') || q.includes('unground') || q.includes('forgive')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Thank you for apologizing! I forgive you—you are UNGROUNDED! 💛🥰`,
+        ungroundNow: true,
+        stats: { kindness: 10, happiness: 8 }
+      };
+    } else if (q.includes('ground me') || q.includes('make a mess') || q.includes('tantrum') || q.includes('hate') || q.includes('no way')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: HEY! That is no way to behave! You are SCOLDED and GROUNDED to your room! 😠🚫`,
+        triggerGrounded: `${speakerName} scolded you for acting out!`,
+        stats: { kindness: -8, happiness: -6 }
+      };
+    } else if (q.includes('love') || q.includes('how are you') || q.includes('hug') || q.includes('best')) {
+      customOpt = {
+        label: `"${rawText}"`,
+        reply: `${speakerName}: Aww, I love you so much! You always make me smile! 🥰💛`,
+        stats: { happiness: 15, kindness: 15, health: 6 }
+      };
+    }
+
+    // Inject this custom question as option 1 and execute it!
+    dlg.topic = {
+      prompt: `🙋 ${gameState.name} asked ${speakerName}:`,
+      isAskMode: true,
+      options: [customOpt]
+    };
+    this.selectDialogueOption(1);
+  },
+
+  doesNpcWantToTalk(npcOrId) {
+    if (!gameState) return false;
+    const turnKey = `${gameState.age}_${gameState.dayCount || 0}_${gameState.timeOfDay || 'day'}`;
+    if (this.lastUrgentTurnKey !== turnKey) {
+      this.lastUrgentTurnKey = turnKey;
+      this.answeredUrgentNpcs = {};
+    }
+
+    const npcId = typeof npcOrId === 'string' ? npcOrId : (npcOrId && npcOrId.id);
+    if (!npcId) return false;
+
+    // Once you answer their urgent question this turn, their head icon switches to normal 💬
+    if (this.answeredUrgentNpcs && this.answeredUrgentNpcs[npcId]) {
+      return false;
+    }
+
+    // Mom and Dad always start the turn wanting to talk to you (❗💬)
+    if (npcId === 'mom' || npcId === 'dad') {
+      return true;
+    }
+
+    // Best Friend also starts wanting to talk to you (❗💬)
+    const bestFriend = typeof getTopFriend === 'function' ? getTopFriend(gameState) : null;
+    if (bestFriend && npcId === bestFriend.id) {
+      return true;
+    }
+
+    // One rotating sibling or friend per day/age also wants to talk (❗💬), while others show normal 💬
+    const seed = (gameState.age || 0) + (gameState.dayCount || 0);
+    if (gameState.siblings && gameState.siblings.length > 0) {
+      const activeSib = gameState.siblings[seed % gameState.siblings.length];
+      if (activeSib && npcId === activeSib.id) return true;
+    }
+
+    return false;
   },
 
   closeDialogue() {
@@ -1973,41 +3790,107 @@ const World2D = {
     if (!gameState || !this.activeDialogue || this.activeDialogue.resolved) return;
     const dlg = this.activeDialogue;
     const topic = dlg.topic;
-    this.dialogueIndices[dlg.npcId] = ((this.dialogueIndices[dlg.npcId] || 0) + 1);
+    const options = (topic && topic.options) || [];
+    const opt = options[choiceNum - 1];
+    if (!opt) return;
 
-    if (choiceNum === 1 || choiceNum === 2) {
-      const playerWords = choiceNum === 1 ? '1: Yay! 🎉' : '2: Wow! 🤩';
-      const reply = choiceNum === 1 ? topic.reply1 : topic.reply2;
-      dlg.resolved = true;
-      dlg.playerChoiceText = playerWords;
-      dlg.npcReplyText = reply;
+    if (dlg.mode === 'ask') {
+      this.askIndices[dlg.npcId] = ((this.askIndices[dlg.npcId] || 0) + 1);
+    } else {
+      this.dialogueIndices[dlg.npcId] = ((this.dialogueIndices[dlg.npcId] || 0) + 1);
+      // Mark their urgent ❗💬 as answered so their head badge switches to normal 💬!
+      if (!this.answeredUrgentNpcs) this.answeredUrgentNpcs = {};
+      this.answeredUrgentNpcs[dlg.npcId] = true;
+    }
 
-      // Boost stats & relationships!
-      gameState.stats.happiness = clampStat(gameState.stats.happiness + (choiceNum === 1 ? 10 : 8));
-      gameState.stats.kindness = clampStat(gameState.stats.kindness + 6);
-      if (choiceNum === 2) gameState.stats.smarts = clampStat(gameState.stats.smarts + 4);
-      if (topic.bonusMoney) gameState.money += topic.bonusMoney;
+    const playerWords = dlg.mode === 'ask' ? `🙋 Asked: ${opt.label}` : `${choiceNum}: ${opt.label}`;
+    const reply = opt.reply;
+    dlg.resolved = true;
+    dlg.playerChoiceText = playerWords;
+    dlg.npcReplyText = reply;
 
-      if (dlg.isSibling && dlg.siblingId && gameState.siblings) {
-        const sib = gameState.siblings.find(s => s.id === dlg.siblingId);
-        if (sib) sib.bond = clampStat((sib.bond || 80) + 10);
-        if (typeof advanceQuestProgress === 'function') advanceQuestProgress('sibling', dlg.siblingId);
-      } else if (dlg.isFamily) {
-        if (typeof advanceQuestProgress === 'function') advanceQuestProgress('family', dlg.npcName);
-      } else if (dlg.friendId) {
-        const fr = gameState.friends.find(f => f.id === dlg.friendId);
-        if (fr) fr.bond = clampStat(fr.bond + 12);
-        if (typeof advanceQuestProgress === 'function') advanceQuestProgress('friend', dlg.friendId);
-      }
+    // Apply custom stat/skill/money/energy effects for this specific answer
+    const st = opt.stats || {};
+    if (st.happiness) gameState.stats.happiness = clampStat(gameState.stats.happiness + st.happiness);
+    if (st.kindness) gameState.stats.kindness = clampStat(gameState.stats.kindness + st.kindness);
+    if (st.smarts) gameState.stats.smarts = clampStat(gameState.stats.smarts + st.smarts);
+    if (st.health) gameState.stats.health = clampStat(gameState.stats.health + st.health);
+    if (st.energy) gameState.energy = Math.min(100, Math.round(gameState.energy + st.energy));
+    if (st.money) gameState.money += st.money;
+    if (st.skill) {
+      const [skName, skAmt] = st.skill;
+      gameState.skills[skName] = Math.min(100, (gameState.skills[skName] || 0) + skAmt);
+    }
 
+    // Boost relationship bond & advance quests if not declining
+    const bondGain = opt.isDecline ? 4 : 11;
+    if (dlg.isSibling && dlg.siblingId && gameState.siblings) {
+      const sib = gameState.siblings.find(s => s.id === dlg.siblingId);
+      if (sib) sib.bond = clampStat((sib.bond || 80) + bondGain);
+      if (!opt.isDecline && typeof advanceQuestProgress === 'function') advanceQuestProgress('sibling', dlg.siblingId);
+    } else if (dlg.isFamily) {
+      if (!opt.isDecline && typeof advanceQuestProgress === 'function') advanceQuestProgress('family', dlg.npcName);
+    } else if (dlg.friendId) {
+      const fr = gameState.friends.find(f => f.id === dlg.friendId);
+      if (fr) fr.bond = clampStat(fr.bond + bondGain);
+      if (!opt.isDecline && typeof advanceQuestProgress === 'function') advanceQuestProgress('friend', dlg.friendId);
+    }
+
+    if (opt.isDecline) {
+      SoundFX.pop();
+    } else {
       SoundFX.milestone();
-      addCurrentYearLog(`💬 ${topic.prompt} — You answered "${playerWords}" -> ${reply}`);
-      showToast(`💬 ${playerWords} — ${reply}`);
+    }
 
-      // If this dialogue invited you to a Place or Station, go there together!
-      if (topic.targetPlaceId) {
+    addCurrentYearLog(`💬 ${topic.prompt} — You answered "${playerWords}" -> ${reply}`);
+    showToast(`💬 ${playerWords} — ${reply}`);
+
+    // Handle Grounded / Scolded / Ungrounded dialogue outcomes!
+    if (opt.ungroundNow) {
+      gameState.isGrounded = false;
+      gameState.groundedDays = 0;
+      gameState.groundedReason = '';
+      addCurrentYearLog(`🙏 ${reply} — You are no longer Grounded!`);
+    }
+    if (opt.extraGroundedDay) {
+      gameState.isGrounded = true;
+      gameState.groundedDays = (gameState.groundedDays || 1) + 1;
+      delete this.answeredUrgentNpcs[dlg.npcId];
+      addCurrentYearLog(`🚫 ${reply} (Now grounded for ${gameState.groundedDays} days!)`);
+    }
+    if (opt.triggerGrounded && typeof groundPlayer === 'function') {
+      this.activeDialogue = null;
+      groundPlayer(opt.triggerGrounded, 2);
+      return;
+    }
+
+    // If the choice serves a specific Fridge item (like Boba Tea, Soup, or Pancakes)
+    if (opt.consumeItem) {
+      this.activeDialogue = null;
+      this.openStationView('fridge');
+      this.consumeFridgeShelfItem(opt.consumeItem);
+      return;
+    }
+
+    // If the choice opens the Furniture Catalog modal
+    if (opt.openModal === 'furniture' && typeof openFurnitureShopModal === 'function') {
+      this.activeDialogue = null;
+      saveGame();
+      renderLeftProfile();
+      renderCenterTimeline();
+      renderRightPanel();
+      this.renderWorldDOM();
+      openFurnitureShopModal();
+      return;
+    }
+
+    // If the choice travels to a place together
+    if (opt.targetPlaceId) {
+      if (gameState.isGrounded && gameState.groundedDays > 0 && opt.targetPlaceId !== 'my-room') {
+        showToast(`🚫 You are GROUNDED in your room (${gameState.groundedDays}d left)! Apologize to Mom or Clean Your Room first!`);
+      } else {
         this.guestNpcId = dlg.npcId;
-        this.currentRoomId = topic.targetPlaceId;
+        this.currentRoomId = opt.targetPlaceId;
         this.viewMode = 'room';
         this.stationView = null;
         this.playerX = 28;
@@ -2015,48 +3898,43 @@ const World2D = {
         this.targetX = 28;
         this.targetY = 56;
         if (typeof advanceQuestProgress === 'function') {
-          advanceQuestProgress('place', topic.targetPlaceId);
+          advanceQuestProgress('place', opt.targetPlaceId);
         }
-      } else if (topic.targetStation) {
-        this.activeDialogue = null;
-        this.openStationView(topic.targetStation);
-        saveGame();
-        renderLeftProfile();
-        renderCenterTimeline();
-        renderRightPanel();
-        return;
       }
-
-      saveGame();
-      renderLeftProfile();
-      renderCenterTimeline();
-      renderRightPanel();
-      this.renderWorldDOM();
-    } else {
-      // Choice 3: "3: No thank you"
-      const playerWords = '3: No thank you 🙏';
-      const reply = topic.reply3;
-      dlg.resolved = true;
-      dlg.playerChoiceText = playerWords;
-      dlg.npcReplyText = reply;
-
-      gameState.stats.kindness = clampStat(gameState.stats.kindness + 5);
-      gameState.energy = Math.min(100, Math.round(gameState.energy + 5));
-      if (topic.bonusMoney) gameState.money += Math.round(topic.bonusMoney / 2);
-
-      SoundFX.pop();
-      addCurrentYearLog(`💬 ${topic.prompt} — You politely answered "3: No thank you" -> ${reply} (+5 Kindness, +5% ⚡ Energy)`);
-      showToast(`💬 "No thank you" — ${reply}`);
-      saveGame();
-      renderLeftProfile();
-      renderCenterTimeline();
-      renderRightPanel();
-      this.renderWorldDOM();
     }
+
+    // If the choice opens an interactive station (Fridge, Desk, Pizza Oven, Ice Cream Counter, Wardrobe)
+    if (opt.targetStation) {
+      this.activeDialogue = null;
+      this.openStationView(opt.targetStation);
+      saveGame();
+      renderLeftProfile();
+      renderCenterTimeline();
+      renderRightPanel();
+      return;
+    }
+
+    // If the choice triggers a live animation (Slide, Swing, Drive, Wash Car, Sleep)
+    if (opt.liveAction) {
+      this.activeDialogue = null;
+      this.performLiveAction(opt.liveAction, 28, opt.targetPlaceId || this.currentRoomId);
+      return;
+    }
+
+    saveGame();
+    renderLeftProfile();
+    renderCenterTimeline();
+    renderRightPanel();
+    this.renderWorldDOM();
   },
 
   switchView(mode, roomId = null) {
     if (!gameState) return;
+    if (gameState.isGrounded && gameState.groundedDays > 0 && (mode === 'town' || (roomId && roomId !== 'my-room'))) {
+      SoundFX.pop();
+      this.openGroundedDoorModal();
+      return;
+    }
     SoundFX.pop();
     this.stationView = null;
     this.liveAction = null;
@@ -2384,6 +4262,111 @@ const World2D = {
       }, 1800);
       return;
     }
+
+    if (actionType === 'treadmill') {
+      if (!spendEnergy(12)) return;
+      SoundFX.milestone();
+      this.playerX = targetX;
+      this.playerY = 48;
+      this.targetX = targetX;
+      this.targetY = 48;
+      this.liveAction = {
+        type: 'swing',
+        label: '🏃⚡ Sprinting on the Digital Treadmill at Powerhouse Gym!',
+        emoji: '🏃💨 Cardio! +12 🏃'
+      };
+      gameState.stats.health = clampStat(gameState.stats.health + 12);
+      gameState.stats.happiness = clampStat(gameState.stats.happiness + 9);
+      gameState.skills.athletics = Math.min(100, (gameState.skills.athletics || 0) + 12);
+      addCurrentYearLog('🏃 Ran a high-speed cardio sprint on the Digital Treadmill at Powerhouse Gym! (+12 Health, +12 Athletics, +9 Happiness)');
+      showToast('🏃💨 Treadmill Cardio Sprint! +12 Health & +12 Athletics!');
+      if (typeof advanceQuestProgress === 'function') {
+        advanceQuestProgress('place', 'gym');
+        advanceQuestProgress('activity', 'sports');
+      }
+      saveGame();
+      renderLeftProfile();
+      renderCenterTimeline();
+      renderRightPanel();
+      this.renderWorldDOM();
+      setTimeout(() => {
+        this.liveAction = null;
+        this.playerY = 56;
+        this.targetY = 56;
+        this.renderWorldDOM();
+      }, 1700);
+      return;
+    }
+
+    if (actionType === 'lift-weights') {
+      if (!spendEnergy(14)) return;
+      SoundFX.milestone();
+      this.playerX = targetX;
+      this.playerY = 49;
+      this.targetX = targetX;
+      this.targetY = 49;
+      this.liveAction = {
+        type: 'swing',
+        label: '🏋️💪 Pumping iron on the Barbell Bench Press & Dumbbells!',
+        emoji: '🏋️💪 Strong! +14 🏃'
+      };
+      gameState.stats.health = clampStat(gameState.stats.health + 11);
+      gameState.stats.happiness = clampStat(gameState.stats.happiness + 10);
+      gameState.skills.athletics = Math.min(100, (gameState.skills.athletics || 0) + 14);
+      addCurrentYearLog('🏋️ Lifted weights on the Barbell Bench Press at Powerhouse Gym! (+14 Athletics, +11 Health, +10 Happiness)');
+      showToast('🏋️💪 Bench Press & Dumbbells! +14 Athletics & +11 Health!');
+      if (typeof advanceQuestProgress === 'function') {
+        advanceQuestProgress('place', 'gym');
+        advanceQuestProgress('activity', 'sports');
+      }
+      saveGame();
+      renderLeftProfile();
+      renderCenterTimeline();
+      renderRightPanel();
+      this.renderWorldDOM();
+      setTimeout(() => {
+        this.liveAction = null;
+        this.playerY = 56;
+        this.targetY = 56;
+        this.renderWorldDOM();
+      }, 1700);
+      return;
+    }
+
+    if (actionType === 'boxing') {
+      if (!spendEnergy(12)) return;
+      SoundFX.milestone();
+      this.playerX = targetX;
+      this.playerY = 50;
+      this.targetX = targetX;
+      this.targetY = 50;
+      this.liveAction = {
+        type: 'swing',
+        label: '🥊🔥 Practicing boxing combos & stretching on the Yoga Mat!',
+        emoji: '🥊💥 Pow! +12 💚'
+      };
+      gameState.stats.health = clampStat(gameState.stats.health + 12);
+      gameState.stats.happiness = clampStat(gameState.stats.happiness + 10);
+      gameState.skills.athletics = Math.min(100, (gameState.skills.athletics || 0) + 12);
+      addCurrentYearLog('🥊 Trained on the Heavy Boxing Bag and stretched on the Yoga Mat at Powerhouse Gym! (+12 Health, +12 Athletics, +10 Happiness)');
+      showToast('🥊💥 Boxing & Yoga Workout! +12 Health & +12 Athletics!');
+      if (typeof advanceQuestProgress === 'function') {
+        advanceQuestProgress('place', 'gym');
+        advanceQuestProgress('activity', 'sports');
+      }
+      saveGame();
+      renderLeftProfile();
+      renderCenterTimeline();
+      renderRightPanel();
+      this.renderWorldDOM();
+      setTimeout(() => {
+        this.liveAction = null;
+        this.playerY = 56;
+        this.targetY = 56;
+        this.renderWorldDOM();
+      }, 1700);
+      return;
+    }
   },
 
   initDeskCanvas() {
@@ -2441,8 +4424,16 @@ const World2D = {
     SoundFX.milestone();
     gameState.stats.happiness = clampStat(gameState.stats.happiness + 10);
     gameState.skills.art = Math.min(100, (gameState.skills.art || 0) + 10);
-    addCurrentYearLog('🎨 Drew an awesome artwork on your Sketchpad at the Desk! (+10 Art Skill, +10 Happiness)');
-    showToast('🎨 Masterpiece finished! +10 Art Skill & +10 Happiness!');
+    if (gameState.isGrounded) {
+      gameState.isGrounded = false;
+      gameState.groundedDays = 0;
+      gameState.groundedReason = '';
+      addCurrentYearLog('🎨 Drew an awesome artwork & studied at your Desk! Mom & Dad were proud of your focus and ungrounded you! (+10 Art, +10 Happiness)');
+      showToast('🎨 Masterpiece finished! Mom & Dad ungrounded you! 🎉');
+    } else {
+      addCurrentYearLog('🎨 Drew an awesome artwork on your Sketchpad at the Desk! (+10 Art Skill, +10 Happiness)');
+      showToast('🎨 Masterpiece finished! +10 Art Skill & +10 Happiness!');
+    }
     if (typeof advanceQuestProgress === 'function') {
       advanceQuestProgress('study');
       advanceQuestProgress('activity', 'art');
@@ -2460,8 +4451,16 @@ const World2D = {
     SoundFX.milestone();
     gameState.stats.smarts = clampStat(gameState.stats.smarts + 12);
     gameState.skills.science = Math.min(100, (gameState.skills.science || 0) + 10);
-    addCurrentYearLog('💻 Coded a project and aced your study challenge at the Desk! (+12 Smarts, +10 Science Skill)');
-    showToast('💻 Study & Coding complete! +12 Smarts & +10 Science!');
+    if (gameState.isGrounded) {
+      gameState.isGrounded = false;
+      gameState.groundedDays = 0;
+      gameState.groundedReason = '';
+      addCurrentYearLog('💻 Completed your study & coding challenge at the Desk! Mom & Dad were proud and ungrounded you! (+12 Smarts, +10 Science)');
+      showToast('💻 Study complete! Mom & Dad ungrounded you! 🎉');
+    } else {
+      addCurrentYearLog('💻 Coded a project and aced your study challenge at the Desk! (+12 Smarts, +10 Science Skill)');
+      showToast('💻 Study & Coding complete! +12 Smarts & +10 Science!');
+    }
     if (typeof advanceQuestProgress === 'function') {
       advanceQuestProgress('study');
       if (this.currentRoomId && this.currentRoomId !== 'my-room') {
@@ -2906,11 +4905,807 @@ const World2D = {
       this.renderZoneActionBar();
       return;
     }
+
+    // 7. INTERACTIVE BAG PACKING STATION VIEW (6 Backpack Pocket Slots + Item Shelves + School & Outing Presets!)
+    if (this.stationView === 'bag') {
+      this.ensureBagInitialized();
+      sq.style.background = 'linear-gradient(180deg, #FEF3C7 0%, #FDE68A 66%, #92400E 66%, #78350F 100%)';
+
+      const allItems = this.getAllPackableBagItems();
+      const packedIds = gameState.packedBag || [];
+      const slotNames = [
+        'Top Zip Pocket',
+        'Main Pocket #1',
+        'Main Pocket #2',
+        'Lunchbox Pocket',
+        'Left Bottle Slot',
+        'Right Side Slot'
+      ];
+
+      sq.innerHTML = `
+        <div class="side-room-badge" style="background:#FFF;border-color:#D97706;color:#92400E;" onclick="event.stopPropagation()">
+          🎒 Pack Your Bag (${packedIds.length} / 6 Slots Packed) — Click Items on the Right to Pack, or Click a Pocket to Unpack/Use!
+        </div>
+        <button type="button" class="room-floor-pill"
+          style="position:absolute;top:10px;right:12px;z-index:30;background:#EF4444;color:#FFF;border-color:#991B1B;"
+          onclick="event.stopPropagation(); World2D.closeStationView()">
+          ⬅️ Out (Back to Room) ✖
+        </button>
+
+        <div style="position:absolute;inset:44px 14px 48px 14px;display:grid;grid-template-columns:1.05fr 1.25fr;gap:12px;z-index:10;" onclick="event.stopPropagation()">
+          <!-- LEFT: Open Backpack with 6 Interactive Pocket Slots -->
+          <div style="background:linear-gradient(180deg,#FEE2E2 0%,#FECACA 100%);border:3.5px solid #B91C1C;border-radius:18px;padding:10px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 20px rgba(0,0,0,0.18);">
+            <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:2px dashed #F87171;padding-bottom:5px;margin-bottom:6px;">
+              <strong style="font-size:0.8rem;color:#991B1B;">🎒 ${gameState.name}'s Open Backpack (${packedIds.length}/6)</strong>
+              <div style="display:flex;gap:4px;">
+                <button type="button" class="dialogue-close-x" style="background:#0284C7;" onclick="World2D.autoPackBagPreset('school')" title="Auto-pack School Supplies & Lunch">🏫 School</button>
+                <button type="button" class="dialogue-close-x" style="background:#16A34A;" onclick="World2D.autoPackBagPreset('outing')" title="Auto-pack Park & Fun Gear">🛝 Outing</button>
+                <button type="button" class="dialogue-close-x" style="background:#64748B;" onclick="World2D.autoPackBagPreset('clear')" title="Empty all slots">🧹 Empty</button>
+              </div>
+            </div>
+
+            <!-- 6 Pocket Slots Grid inside the Backpack -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:1;">
+              ${[0, 1, 2, 3, 4, 5].map(slotIdx => {
+                const itemId = packedIds[slotIdx];
+                const item = itemId ? allItems.find(i => i.id === itemId) : null;
+                if (item) {
+                  return `
+                    <div style="background:#FFFFFF;border:2px solid #16A34A;border-radius:12px;padding:6px 8px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 2px 6px rgba(0,0,0,0.08);">
+                      <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:1.45rem;line-height:1;">${item.icon}</span>
+                        <div style="min-width:0;flex:1;">
+                          <strong style="font-size:0.71rem;color:#1E293B;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.name}</strong>
+                          <span style="font-size:0.61rem;color:#15803D;font-weight:700;display:block;">${item.desc}</span>
+                        </div>
+                      </div>
+                      <div style="display:flex;gap:4px;margin-top:4px;">
+                        <button type="button" style="flex:1;background:#DCFCE7;color:#166534;border:1px solid #16A34A;border-radius:6px;font-size:0.63rem;font-weight:800;padding:2px 4px;cursor:pointer;"
+                          onclick="World2D.usePackedBagItem('${item.id}')">✨ Use</button>
+                        <button type="button" style="background:#FEE2E2;color:#991B1B;border:1px solid #F87171;border-radius:6px;font-size:0.63rem;font-weight:800;padding:2px 6px;cursor:pointer;"
+                          onclick="World2D.togglePackBagItem('${item.id}')">✖ Unpack</button>
+                      </div>
+                    </div>
+                  `;
+                }
+                return `
+                  <div style="background:rgba(255,255,255,0.55);border:2px dashed #F87171;border-radius:12px;padding:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#991B1B;text-align:center;">
+                    <span style="font-size:1.1rem;opacity:0.55;">🎒</span>
+                    <strong style="font-size:0.66rem;">Empty: ${slotNames[slotIdx]}</strong>
+                    <span style="font-size:0.58rem;opacity:0.75;">Click an item on the right ➜</span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- RIGHT: Packable Items Shelf (School, Snacks & Outing Gear) -->
+          <div style="background:rgba(255,255,255,0.95);border:3px solid #D97706;border-radius:18px;padding:9px 11px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;box-shadow:0 8px 20px rgba(0,0,0,0.16);">
+            <strong style="font-size:0.76rem;color:#92400E;">📦 Click Any Item Below to Pack or Unpack It:</strong>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+              ${allItems.map(item => {
+                const isPacked = packedIds.includes(item.id);
+                return `
+                  <div style="border:2px solid ${isPacked ? '#16A34A' : '#E2E8F0'};background:${isPacked ? '#F0FDF4' : '#FFFDF9'};border-radius:10px;padding:5px 7px;display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;transition:transform 0.12s ease;"
+                    onclick="World2D.togglePackBagItem('${item.id}')">
+                    <div style="display:flex;align-items:center;gap:6px;min-width:0;flex:1;">
+                      <span style="font-size:1.3rem;">${item.icon}</span>
+                      <div style="min-width:0;flex:1;">
+                        <strong style="font-size:0.7rem;color:#1E293B;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.name}</strong>
+                        <span style="font-size:0.6rem;color:#64748B;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${item.desc}</span>
+                      </div>
+                    </div>
+                    <span style="font-size:0.64rem;font-weight:800;padding:2px 6px;border-radius:999px;background:${isPacked ? '#16A34A' : '#FEF3C7'};color:${isPacked ? '#FFF' : '#92400E'};white-space:nowrap;">
+                      ${isPacked ? '✓ Packed' : '+ Pack'}
+                    </span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="room-floor-actions-bar" onclick="event.stopPropagation()">
+          <button type="button" class="room-floor-pill" onclick="World2D.autoPackBagPreset('school')">
+            🏫 Pack for School
+          </button>
+          <button type="button" class="room-floor-pill" onclick="World2D.autoPackBagPreset('outing')">
+            🛝 Pack for Park & Outing
+          </button>
+          <button type="button" class="room-floor-pill primary-room-pill" style="background:#16A34A;color:#FFF;" onclick="World2D.finishPackingAndZipBag()">
+            ✨ Zip Up & Carry Bag! (+8 😊, +6 🧠)
+          </button>
+          <button type="button" class="room-floor-pill" style="background:#EF4444;color:#FFF;" onclick="World2D.closeStationView()">
+            ⬅️ Out
+          </button>
+        </div>
+      `;
+      this.renderZoneActionBar();
+      return;
+    }
+
+    // 8. INTERACTIVE DECISIONS CENTER VIEW ("What Will You Choose?" Scenarios + Daily Life Rules!)
+    if (this.stationView === 'decisions') {
+      this.ensureDecisionsInitialized();
+      sq.style.background = 'linear-gradient(180deg, #EDE9FE 0%, #DDD6FE 66%, #4C1D95 66%, #2E1065 100%)';
+
+      const scenario = this.getCurrentDecisionScenario();
+      const rules = gameState.lifeRules || {};
+      const lastOutcome = this.lastDecisionOutcome;
+
+      sq.innerHTML = `
+        <div class="side-room-badge" style="background:#FFF;border-color:#7C3AED;color:#5B21B6;" onclick="event.stopPropagation()">
+          🧭 Decisions Center (🏆 ${gameState.decisionsMadeCount || 0} Decisions Made) — Choose What You Want to Do!
+        </div>
+        <button type="button" class="room-floor-pill"
+          style="position:absolute;top:10px;right:12px;z-index:30;background:#EF4444;color:#FFF;border-color:#991B1B;"
+          onclick="event.stopPropagation(); World2D.closeStationView()">
+          ⬅️ Out (Back) ✖
+        </button>
+
+        <div style="position:absolute;inset:44px 14px 48px 14px;display:grid;grid-template-columns:1.3fr 0.95fr;gap:12px;z-index:10;" onclick="event.stopPropagation()">
+          <!-- LEFT: Active "What Will You Choose?" Scenario Card -->
+          <div style="background:#FFFFFF;border:3px solid #7C3AED;border-radius:18px;padding:10px 12px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 8px 20px rgba(0,0,0,0.18);overflow-y:auto;">
+            <div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                <span style="background:#F3E8FF;color:#6D28D9;border:1px solid #C4B5FD;font-size:0.66rem;font-weight:800;padding:2px 8px;border-radius:999px;">
+                  ${scenario.icon} ${scenario.badge}
+                </span>
+                <button type="button" class="dialogue-close-x" style="background:#7C3AED;" onclick="World2D.nextDecisionScenario()">
+                  🔄 Next Scenario
+                </button>
+              </div>
+              <strong style="font-size:0.88rem;color:#1E293B;display:block;margin-bottom:3px;">${scenario.title}</strong>
+              <p style="font-size:0.74rem;color:#475569;margin-bottom:8px;line-height:1.3;">${scenario.prompt}</p>
+            </div>
+
+            ${lastOutcome && lastOutcome.scenarioId === scenario.id ? `
+              <div style="background:#F0FDF4;border:2px solid #16A34A;border-radius:12px;padding:8px 10px;margin-bottom:6px;">
+                <strong style="font-size:0.76rem;color:#166534;display:block;margin-bottom:3px;">✓ Decision Made: ${lastOutcome.choiceLabel}</strong>
+                <p style="font-size:0.73rem;color:#15803D;margin-bottom:6px;">${lastOutcome.text}</p>
+                <button type="button" class="energy-btn eat-btn" style="font-size:0.72rem;padding:5px 12px;" onclick="World2D.nextDecisionScenario()">
+                  🧭 Next Decision Scenario ➜
+                </button>
+              </div>
+            ` : `
+              <div style="display:flex;flex-direction:column;gap:5px;">
+                ${scenario.choices.map((ch, idx) => `
+                  <button type="button" class="dialogue-choice-pill choice-${Math.min(4, idx + 1)}"
+                    style="padding:5px 9px;display:flex;flex-direction:column;gap:1px;"
+                    onclick="World2D.makeScenarioDecision('${scenario.id}', ${idx})">
+                    <span style="font-size:0.75rem;font-weight:800;">${ch.label}</span>
+                    <span style="font-size:0.63rem;opacity:0.85;font-weight:700;">${ch.sub}</span>
+                  </button>
+                `).join('')}
+              </div>
+            `}
+          </div>
+
+          <!-- RIGHT: Personal Life Rules & Quick Choices -->
+          <div style="background:rgba(255,255,255,0.95);border:3px solid #D97706;border-radius:18px;padding:9px 11px;overflow-y:auto;display:flex;flex-direction:column;gap:7px;box-shadow:0 8px 20px rgba(0,0,0,0.16);">
+            <strong style="font-size:0.76rem;color:#92400E;">⚙️ Choose Your Personal Rules & Priorities:</strong>
+            ${LIFE_RULE_DECISIONS.map(rule => {
+              const currentVal = rules[rule.key] || rule.options[0].id;
+              return `
+                <div style="background:#FFFBEB;border:1.5px solid #FDE68A;border-radius:10px;padding:5px 7px;">
+                  <strong style="font-size:0.69rem;color:#92400E;display:block;margin-bottom:4px;">${rule.title}</strong>
+                  <div style="display:flex;flex-direction:column;gap:3px;">
+                    ${rule.options.map(opt => {
+                      const active = currentVal === opt.id;
+                      return `
+                        <button type="button"
+                          style="text-align:left;font-size:0.66rem;font-weight:800;padding:3px 7px;border-radius:7px;cursor:pointer;border:1.5px solid ${active ? '#16A34A' : '#E2E8F0'};background:${active ? '#DCFCE7' : '#FFFFFF'};color:${active ? '#166534' : '#334155'};"
+                          onclick="World2D.setLifeRuleDecision('${rule.key}', '${opt.id}')">
+                          ${active ? '✓ ' : ''}${opt.label}
+                        </button>
+                      `;
+                    }).join('')}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="room-floor-actions-bar" onclick="event.stopPropagation()">
+          <button type="button" class="room-floor-pill" onclick="World2D.nextDecisionScenario()">
+            🔄 New Decision Dilemma
+          </button>
+          <button type="button" class="room-floor-pill" onclick="switchTab('decisions')">
+            📋 View All Decisions in Side Panel
+          </button>
+          <button type="button" class="room-floor-pill primary-room-pill" style="background:#EF4444;color:#FFF;" onclick="World2D.closeStationView()">
+            ⬅️ Out (Back)
+          </button>
+        </div>
+      `;
+      this.renderZoneActionBar();
+      return;
+    }
+
+    // 9. INTERACTIVE DAILY SCHEDULE PLANNER VIEW (4 Time Slots: Morning, Afternoon, Evening, Night!)
+    if (this.stationView === 'schedule') {
+      this.ensureScheduleInitialized();
+      sq.style.background = 'linear-gradient(180deg, #E0F2FE 0%, #BAE6FD 66%, #0369A1 66%, #075985 100%)';
+
+      const sched = gameState.dailySchedule || {};
+      const doneSlots = gameState.completedScheduleSlots || {};
+
+      sq.innerHTML = `
+        <div class="side-room-badge" style="background:#FFF;border-color:#0284C7;color:#0369A1;" onclick="event.stopPropagation()">
+          📅 ${gameState.name}'s Daily Schedule — Plan Your 4 Time Slots & Click "▶ Do Now" or "✨ Run Full Day"!
+        </div>
+        <button type="button" class="room-floor-pill"
+          style="position:absolute;top:10px;right:12px;z-index:30;background:#EF4444;color:#FFF;border-color:#991B1B;"
+          onclick="event.stopPropagation(); World2D.closeStationView()">
+          ⬅️ Out (Back) ✖
+        </button>
+
+        <div style="position:absolute;inset:44px 14px 48px 14px;display:grid;grid-template-columns:1fr 1fr;gap:8px;z-index:10;overflow-y:auto;" onclick="event.stopPropagation()">
+          ${DAILY_SCHEDULE_SLOTS.map(slot => {
+            const activeOptId = sched[slot.slotKey] || slot.options[0].id;
+            const activeOpt = slot.options.find(o => o.id === activeOptId) || slot.options[0];
+            const isDone = !!doneSlots[slot.slotKey];
+            return `
+              <div style="background:${slot.bg};border:2.5px solid ${isDone ? '#16A34A' : slot.color};border-radius:14px;padding:7px 9px;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 4px 12px rgba(0,0,0,0.12);">
+                <div>
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:4px;">
+                    <strong style="font-size:0.76rem;color:#1E293B;">${slot.timeLabel}</strong>
+                    <div style="display:flex;gap:4px;align-items:center;">
+                      ${isDone ? `<span style="background:#DCFCE7;color:#166534;font-size:0.6rem;font-weight:800;padding:1px 6px;border-radius:999px;">✓ Done</span>` : ''}
+                      <button type="button" class="dialogue-close-x" style="background:#16A34A;padding:2px 8px;"
+                        onclick="World2D.executeScheduleSlot('${slot.slotKey}')">
+                        ▶ Do Now
+                      </button>
+                    </div>
+                  </div>
+                  <div style="background:#FFFFFF;border:1.5px solid ${slot.color};border-radius:8px;padding:4px 7px;margin-bottom:5px;">
+                    <strong style="font-size:0.72rem;color:#0F172A;display:block;">${activeOpt.name}</strong>
+                    <span style="font-size:0.61rem;color:#059669;font-weight:700;display:block;">${activeOpt.desc}</span>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;">
+                  ${slot.options.map(opt => {
+                    const sel = opt.id === activeOpt.id;
+                    return `
+                      <button type="button"
+                        style="text-align:left;font-size:0.61rem;font-weight:800;padding:3px 5px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:1.5px solid ${sel ? slot.color : '#CBD5E1'};background:${sel ? '#FFFFFF' : 'rgba(255,255,255,0.65)'};color:${sel ? '#0F172A' : '#475569'};"
+                        onclick="World2D.setScheduleSlotActivity('${slot.slotKey}', '${opt.id}')"
+                        title="${opt.name} (${opt.desc})">
+                        ${sel ? '✓ ' : ''}${opt.name}
+                      </button>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div class="room-floor-actions-bar" onclick="event.stopPropagation()">
+          <button type="button" class="room-floor-pill" onclick="World2D.applySchedulePreset('school')">
+            🏫 School Day Preset
+          </button>
+          <button type="button" class="room-floor-pill" onclick="World2D.applySchedulePreset('fun')">
+            🍦 Fun & Bestie Preset
+          </button>
+          <button type="button" class="room-floor-pill" onclick="World2D.applySchedulePreset('allowance')">
+            🪙 Chores & Money Preset
+          </button>
+          <button type="button" class="room-floor-pill primary-room-pill" style="background:#16A34A;color:#FFF;" onclick="World2D.runFullDailySchedule()">
+            ✨ Run Full Day Schedule! (+$10 🪙 Bonus!)
+          </button>
+          <button type="button" class="room-floor-pill" style="background:#EF4444;color:#FFF;" onclick="World2D.closeStationView()">
+            ⬅️ Out
+          </button>
+        </div>
+      `;
+      this.renderZoneActionBar();
+      return;
+    }
+  },
+
+  ensureScheduleInitialized() {
+    if (!gameState) return;
+    if (!gameState.dailySchedule) {
+      gameState.dailySchedule = {
+        morning: 'pack-bag',
+        afternoon: 'afternoon-icecream',
+        evening: 'evening-pizza',
+        night: 'night-sleep'
+      };
+    }
+    if (!gameState.completedScheduleSlots) {
+      gameState.completedScheduleSlots = {};
+    }
+  },
+
+  setScheduleSlotActivity(slotKey, optId) {
+    if (!gameState) return;
+    this.ensureScheduleInitialized();
+    const slot = DAILY_SCHEDULE_SLOTS.find(s => s.slotKey === slotKey);
+    const opt = slot && slot.options.find(o => o.id === optId);
+    if (!slot || !opt) return;
+
+    gameState.dailySchedule[slotKey] = optId;
+    gameState.completedScheduleSlots[slotKey] = false;
+    SoundFX.pop();
+    showToast(`📅 Scheduled ${slot.timeLabel}: ${opt.name}!`);
+    saveGame();
+    renderRightPanel();
+    this.renderWorldDOM();
+  },
+
+  applySchedulePreset(presetType) {
+    if (!gameState) return;
+    this.ensureScheduleInitialized();
+    if (presetType === 'school') {
+      gameState.dailySchedule = {
+        morning: 'morning-school',
+        afternoon: 'afternoon-toys',
+        evening: 'evening-desk',
+        night: 'night-sleep'
+      };
+      showToast('📅 Applied "🏫 School & Study Day" Schedule!');
+    } else if (presetType === 'fun') {
+      gameState.dailySchedule = {
+        morning: 'morning-boba',
+        afternoon: 'afternoon-icecream',
+        evening: 'evening-bestie',
+        night: 'night-jam'
+      };
+      showToast('📅 Applied "🍦 Fun & Bestie Outing" Schedule!');
+    } else if (presetType === 'allowance') {
+      gameState.dailySchedule = {
+        morning: 'pack-bag',
+        afternoon: 'afternoon-carwash',
+        evening: 'evening-soup',
+        night: 'night-story'
+      };
+      showToast('📅 Applied "🪙 Chores & Family" Schedule!');
+    }
+    gameState.completedScheduleSlots = {};
+    SoundFX.milestone();
+    saveGame();
+    renderRightPanel();
+    this.renderWorldDOM();
+  },
+
+  executeScheduleSlot(slotKey) {
+    if (!gameState) return;
+    this.ensureScheduleInitialized();
+    const slot = DAILY_SCHEDULE_SLOTS.find(s => s.slotKey === slotKey);
+    if (!slot) return;
+    const activeOptId = gameState.dailySchedule[slotKey] || slot.options[0].id;
+    const opt = slot.options.find(o => o.id === activeOptId) || slot.options[0];
+
+    const st = opt.stats || {};
+    if (st.happiness) gameState.stats.happiness = clampStat(gameState.stats.happiness + st.happiness);
+    if (st.kindness) gameState.stats.kindness = clampStat(gameState.stats.kindness + st.kindness);
+    if (st.smarts) gameState.stats.smarts = clampStat(gameState.stats.smarts + st.smarts);
+    if (st.health) gameState.stats.health = clampStat(gameState.stats.health + st.health);
+    if (st.energy) gameState.energy = Math.min(100, Math.round(gameState.energy + st.energy));
+    if (st.money) gameState.money += st.money;
+    if (st.skill) {
+      const [sk, amt] = st.skill;
+      gameState.skills[sk] = Math.min(100, (gameState.skills[sk] || 0) + amt);
+    }
+    if (st.friendBoost && typeof getTopFriend === 'function') {
+      const bf = getTopFriend(gameState);
+      if (bf) bf.bond = clampStat(bf.bond + st.friendBoost);
+    }
+
+    gameState.completedScheduleSlots[slotKey] = true;
+    SoundFX.milestone();
+    addCurrentYearLog(`📅 Schedule [${slot.timeLabel}]: Completed "${opt.name}" (${opt.desc})!`);
+    showToast(`📅 ${slot.timeLabel}: ${opt.name}! (${opt.desc})`);
+
+    if (opt.consumeItem) {
+      this.openStationView('fridge');
+      this.consumeFridgeShelfItem(opt.consumeItem);
+      return;
+    }
+
+    if (opt.targetPlaceId) {
+      this.currentRoomId = opt.targetPlaceId;
+      this.viewMode = 'room';
+      this.stationView = null;
+      this.playerX = 28;
+      this.playerY = 56;
+      this.targetX = 28;
+      this.targetY = 56;
+      if (typeof advanceQuestProgress === 'function') {
+        advanceQuestProgress('place', opt.targetPlaceId);
+      }
+    }
+
+    if (opt.targetStation) {
+      this.openStationView(opt.targetStation);
+      saveGame();
+      renderAll();
+      return;
+    }
+
+    if (opt.liveAction) {
+      this.stationView = null;
+      this.performLiveAction(opt.liveAction, 28, opt.targetPlaceId || this.currentRoomId);
+      return;
+    }
+
+    saveGame();
+    renderAll();
+  },
+
+  runFullDailySchedule() {
+    if (!gameState) return;
+    this.ensureScheduleInitialized();
+    const summaryNames = [];
+
+    DAILY_SCHEDULE_SLOTS.forEach(slot => {
+      const activeOptId = gameState.dailySchedule[slot.slotKey] || slot.options[0].id;
+      const opt = slot.options.find(o => o.id === activeOptId) || slot.options[0];
+      summaryNames.push(`${slot.timeLabel.split(' ')[0]} ${opt.name}`);
+      gameState.completedScheduleSlots[slot.slotKey] = true;
+
+      const st = opt.stats || {};
+      if (st.happiness) gameState.stats.happiness = clampStat(gameState.stats.happiness + Math.round(st.happiness * 0.6));
+      if (st.kindness) gameState.stats.kindness = clampStat(gameState.stats.kindness + Math.round(st.kindness * 0.6));
+      if (st.smarts) gameState.stats.smarts = clampStat(gameState.stats.smarts + Math.round(st.smarts * 0.6));
+      if (st.health) gameState.stats.health = clampStat(gameState.stats.health + Math.round(st.health * 0.6));
+      if (st.energy) gameState.energy = Math.min(100, Math.round(gameState.energy + Math.round(st.energy * 0.6)));
+      if (st.money) gameState.money += st.money;
+      if (st.skill) {
+        const [sk, amt] = st.skill;
+        gameState.skills[sk] = Math.min(100, (gameState.skills[sk] || 0) + Math.round(amt * 0.6));
+      }
+      if (st.friendBoost && typeof getTopFriend === 'function') {
+        const bf = getTopFriend(gameState);
+        if (bf) bf.bond = clampStat(bf.bond + Math.round(st.friendBoost * 0.6));
+      }
+    });
+
+    // Full schedule completion bonus!
+    gameState.money += 10;
+    gameState.energy = Math.min(100, Math.round(gameState.energy + 15));
+    SoundFX.milestone();
+    addCurrentYearLog(`📅✨ Completed Full Daily Schedule (${summaryNames.join(' -> ')})! Earned +$10 Routine Bonus & +15% ⚡ Energy!`);
+    showToast('📅✨ Completed your Full Daily Schedule! (+$10 🪙 Bonus, +15% ⚡ Energy & All Slot Boosts!)');
+    saveGame();
+    renderAll();
+  },
+
+  ensureDecisionsInitialized() {
+    if (!gameState) return;
+    if (typeof gameState.decisionIndex !== 'number') {
+      gameState.decisionIndex = 0;
+    }
+    if (typeof gameState.decisionsMadeCount !== 'number') {
+      gameState.decisionsMadeCount = 0;
+    }
+    if (!gameState.lifeRules) {
+      gameState.lifeRules = {
+        dailyFocus: 'balanced',
+        moneyRule: 'saver',
+        freeTimeRule: 'boba-chill'
+      };
+    }
+  },
+
+  getCurrentDecisionScenario() {
+    this.ensureDecisionsInitialized();
+    const idx = (gameState.decisionIndex || 0) % DECISION_SCENARIOS.length;
+    return DECISION_SCENARIOS[idx];
+  },
+
+  nextDecisionScenario() {
+    if (!gameState) return;
+    this.ensureDecisionsInitialized();
+    SoundFX.pop();
+    this.lastDecisionOutcome = null;
+    gameState.decisionIndex = ((gameState.decisionIndex || 0) + 1) % DECISION_SCENARIOS.length;
+    saveGame();
+    renderRightPanel();
+    this.renderWorldDOM();
+  },
+
+  makeScenarioDecision(scenarioId, choiceIdx) {
+    if (!gameState) return;
+    this.ensureDecisionsInitialized();
+    const scenario = DECISION_SCENARIOS.find(s => s.id === scenarioId) || this.getCurrentDecisionScenario();
+    const ch = scenario && scenario.choices[choiceIdx];
+    if (!ch) return;
+
+    const st = ch.stats || {};
+    if (st.happiness) gameState.stats.happiness = clampStat(gameState.stats.happiness + st.happiness);
+    if (st.kindness) gameState.stats.kindness = clampStat(gameState.stats.kindness + st.kindness);
+    if (st.smarts) gameState.stats.smarts = clampStat(gameState.stats.smarts + st.smarts);
+    if (st.health) gameState.stats.health = clampStat(gameState.stats.health + st.health);
+    if (st.energy) gameState.energy = Math.min(100, Math.round(gameState.energy + st.energy));
+    if (st.money) gameState.money += st.money;
+    if (st.skill) {
+      const [sk, amt] = st.skill;
+      gameState.skills[sk] = Math.min(100, (gameState.skills[sk] || 0) + amt);
+    }
+    if (st.skill2) {
+      const [sk2, amt2] = st.skill2;
+      gameState.skills[sk2] = Math.min(100, (gameState.skills[sk2] || 0) + amt2);
+    }
+    if (st.friendBoost && typeof getTopFriend === 'function') {
+      const bf = getTopFriend(gameState);
+      if (bf) bf.bond = clampStat(bf.bond + st.friendBoost);
+    }
+    if (st.allFriendsBoost && Array.isArray(gameState.friends)) {
+      gameState.friends.forEach(f => { f.bond = clampStat(f.bond + st.allFriendsBoost); });
+    }
+
+    gameState.decisionsMadeCount = (gameState.decisionsMadeCount || 0) + 1;
+    gameState.decisionIndex = ((gameState.decisionIndex || 0) + 1) % DECISION_SCENARIOS.length;
+
+    SoundFX.milestone();
+    addCurrentYearLog(`🧭 Decision [${scenario.title}]: Chose "${ch.label}" — ${ch.outcomeText}`);
+    showToast(`🧭 ${ch.outcomeText}`);
+
+    if (ch.consumeItem) {
+      this.openStationView('fridge');
+      this.consumeFridgeShelfItem(ch.consumeItem);
+      return;
+    }
+
+    if (ch.targetPlaceId) {
+      this.currentRoomId = ch.targetPlaceId;
+      this.viewMode = 'room';
+      this.stationView = null;
+      this.playerX = 28;
+      this.playerY = 56;
+      this.targetX = 28;
+      this.targetY = 56;
+      if (typeof advanceQuestProgress === 'function') {
+        advanceQuestProgress('place', ch.targetPlaceId);
+      }
+    }
+
+    if (ch.targetStation) {
+      this.openStationView(ch.targetStation);
+      saveGame();
+      renderAll();
+      return;
+    }
+
+    if (ch.liveAction) {
+      this.stationView = null;
+      this.performLiveAction(ch.liveAction, 28, ch.targetPlaceId || this.currentRoomId);
+      return;
+    }
+
+    saveGame();
+    renderAll();
+  },
+
+  setLifeRuleDecision(ruleKey, optId) {
+    if (!gameState) return;
+    this.ensureDecisionsInitialized();
+    const rule = LIFE_RULE_DECISIONS.find(r => r.key === ruleKey);
+    if (!rule) return;
+    const opt = rule.options.find(o => o.id === optId);
+    if (!opt) return;
+
+    gameState.lifeRules[ruleKey] = optId;
+    const st = opt.stats || {};
+    if (st.happiness) gameState.stats.happiness = clampStat(gameState.stats.happiness + st.happiness);
+    if (st.kindness) gameState.stats.kindness = clampStat(gameState.stats.kindness + st.kindness);
+    if (st.smarts) gameState.stats.smarts = clampStat(gameState.stats.smarts + st.smarts);
+    if (st.health) gameState.stats.health = clampStat(gameState.stats.health + st.health);
+    if (st.energy) gameState.energy = Math.min(100, Math.round(gameState.energy + st.energy));
+    if (st.money) gameState.money += st.money;
+    if (st.skill) {
+      const [sk, amt] = st.skill;
+      gameState.skills[sk] = Math.min(100, (gameState.skills[sk] || 0) + amt);
+    }
+    if (st.friendBoost && typeof getTopFriend === 'function') {
+      const bf = getTopFriend(gameState);
+      if (bf) bf.bond = clampStat(bf.bond + st.friendBoost);
+    }
+
+    gameState.decisionsMadeCount = (gameState.decisionsMadeCount || 0) + 1;
+    SoundFX.milestone();
+    addCurrentYearLog(`🧭 Life Rule Decision [${rule.title}]: Set to "${opt.label}"!`);
+    showToast(`🧭 Set ${rule.title} to: ${opt.label}!`);
+    saveGame();
+    renderAll();
+  },
+
+  ensureBagInitialized() {
+    if (!gameState) return;
+    if (!Array.isArray(gameState.packedBag)) {
+      gameState.packedBag = ['notebook', 'boba', 'lunchbox'];
+    }
+  },
+
+  getAllPackableBagItems() {
+    const baseList = [...BAG_PACKABLE_ITEMS];
+    const seenNames = new Set(baseList.map(b => b.name.toLowerCase()));
+    if (gameState && Array.isArray(gameState.inventory)) {
+      gameState.inventory.forEach((invItem, idx) => {
+        if (!invItem || !invItem.name) return;
+        if (seenNames.has(invItem.name.toLowerCase())) return;
+        seenNames.add(invItem.name.toLowerCase());
+        baseList.push({
+          id: invItem.id || `inv-pack-${idx}`,
+          name: invItem.name,
+          icon: invItem.icon || '🎁',
+          category: invItem.category || 'fun',
+          desc: invItem.desc || '+8 Happiness 😊',
+          effects: invItem.effects || { happiness: 8 }
+        });
+      });
+    }
+    return baseList;
+  },
+
+  togglePackBagItem(itemId) {
+    if (!gameState) return;
+    this.ensureBagInitialized();
+    const allItems = this.getAllPackableBagItems();
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    const idx = gameState.packedBag.indexOf(itemId);
+    if (idx !== -1) {
+      gameState.packedBag.splice(idx, 1);
+      SoundFX.pop();
+      showToast(`🎒 Unpacked ${item.icon} ${item.name} from your bag!`);
+    } else {
+      if (gameState.packedBag.length >= 6) {
+        SoundFX.pop();
+        showToast('🎒 Your Backpack is full (6/6 slots)! Unpack an item first.');
+        return;
+      }
+      gameState.packedBag.push(itemId);
+      SoundFX.pop();
+      showToast(`🎒 Packed ${item.icon} ${item.name} into your bag (${gameState.packedBag.length}/6)!`);
+    }
+    saveGame();
+    this.renderWorldDOM();
+  },
+
+  autoPackBagPreset(presetType) {
+    if (!gameState) return;
+    this.ensureBagInitialized();
+    if (presetType === 'school') {
+      gameState.packedBag = ['notebook', 'sketchbook', 'magnifier', 'lunchbox', 'boba', 'apple'];
+      SoundFX.milestone();
+      showToast('🏫 Packed your bag with School Supplies, Boba Tea & Lunchbox (6/6)!');
+    } else if (presetType === 'outing') {
+      gameState.packedBag = ['boba', 'lunchbox', 'plushie', 'camera', 'waterbottle', 'handheld'];
+      SoundFX.milestone();
+      showToast('🛝 Packed your bag for an Outing with Boba Tea, Camera, Plushie & Game Console (6/6)!');
+    } else if (presetType === 'clear') {
+      gameState.packedBag = [];
+      SoundFX.pop();
+      showToast('🧹 Emptied all 6 slots of your backpack!');
+    }
+    saveGame();
+    this.renderWorldDOM();
+  },
+
+  usePackedBagItem(itemId) {
+    if (!gameState) return;
+    this.ensureBagInitialized();
+    const allItems = this.getAllPackableBagItems();
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    const eff = item.effects || {};
+    if (eff.energy) gameState.energy = Math.min(100, Math.round(gameState.energy + eff.energy));
+    if (eff.happiness) gameState.stats.happiness = clampStat(gameState.stats.happiness + eff.happiness);
+    if (eff.health) gameState.stats.health = clampStat(gameState.stats.health + eff.health);
+    if (eff.smarts) gameState.stats.smarts = clampStat(gameState.stats.smarts + eff.smarts);
+    if (eff.kindness) gameState.stats.kindness = clampStat(gameState.stats.kindness + eff.kindness);
+    if (eff.skill) {
+      const [sk, amt] = eff.skill;
+      gameState.skills[sk] = Math.min(100, (gameState.skills[sk] || 0) + amt);
+    }
+
+    SoundFX.milestone();
+    addCurrentYearLog(`🎒 Used ${item.icon} ${item.name} from your packed bag! (${item.desc})`);
+    showToast(`🎒 Used ${item.icon} ${item.name} from your bag! (${item.desc})`);
+    if (eff.energy && typeof advanceQuestProgress === 'function') {
+      advanceQuestProgress('eat');
+    }
+    saveGame();
+    renderLeftProfile();
+    renderCenterTimeline();
+    renderRightPanel();
+    this.renderWorldDOM();
+  },
+
+  finishPackingAndZipBag() {
+    if (!gameState) return;
+    this.ensureBagInitialized();
+    const allItems = this.getAllPackableBagItems();
+    const packedObjs = (gameState.packedBag || []).map(id => allItems.find(i => i.id === id)).filter(Boolean);
+    if (packedObjs.length === 0) {
+      showToast('🎒 Pack at least 1 item into your bag before zipping it up!');
+      return;
+    }
+
+    gameState.stats.happiness = clampStat(gameState.stats.happiness + 8);
+    gameState.stats.smarts = clampStat(gameState.stats.smarts + 6);
+    gameState.stats.kindness = clampStat(gameState.stats.kindness + 4);
+
+    const namesStr = packedObjs.map(i => `${i.icon} ${i.name}`).join(', ');
+    SoundFX.milestone();
+    addCurrentYearLog(`🎒 Packed your bag (${packedObjs.length}/6 slots): ${namesStr}! (+8 Happiness, +6 Smarts)`);
+    showToast(`🎒 Zipped up your bag with ${packedObjs.length} items! Ready for the day! (+8 😊, +6 🧠)`);
+    this.stationView = null;
+    saveGame();
+    renderLeftProfile();
+    renderCenterTimeline();
+    renderRightPanel();
+    this.renderWorldDOM();
+  },
+
+  openGroundedDoorModal() {
+    if (!gameState) return;
+    SoundFX.pop();
+    const modal = document.getElementById('event-modal');
+    const content = document.getElementById('event-modal-body');
+
+    content.innerHTML = `
+      <div class="modal-top-row">
+        <div class="modal-header-badge" style="margin-bottom:0;background:#FEE2E2;color:#B91C1C;border:1px solid #FCA5A5;">🚫 GROUNDED IN YOUR ROOM (${gameState.groundedDays} Day${gameState.groundedDays > 1 ? 's' : ''} Left)</div>
+        <button type="button" class="modal-out-btn" onclick="closeModal()">⬅️ Stay in Room ✖</button>
+      </div>
+      <h2>🚫 Mom Says: "You Are Grounded!"</h2>
+      <p class="modal-story-text" style="background:#FFF1F2;border:1.5px solid #FECDD3;border-radius:12px;padding:10px 12px;color:#9F1239;">
+        <strong>Why you got grounded:</strong> ${gameState.groundedReason || 'You got scolded for misbehaving!'}<br/>
+        You cannot leave your bedroom to visit town places until you earn back Mom & Dad's trust or finish your grounded days!
+      </p>
+      <div class="choice-list">
+        <button class="choice-btn" onclick="closeModal(); apologizeToUnGround();">
+          <span style="font-size:1.4rem;">🙏</span>
+          <div style="flex:1;">
+            <strong>1: Apologize Sincerely to Mom & Promise to Behave</strong>
+            <div style="font-size:0.76rem;color:#15803D;">Mom forgives you right away! (+8 Kindness 💛 & Ungrounded!)</div>
+          </div>
+          <span class="conseq-tag conseq-good">Unground Now ➜</span>
+        </button>
+        <button class="choice-btn" onclick="closeModal(); cleanRoomToUnGround();">
+          <span style="font-size:1.4rem;">🧹</span>
+          <div style="flex:1;">
+            <strong>2: Clean Up Your Whole Bedroom & Do Chores (-10% ⚡)</strong>
+            <div style="font-size:0.76rem;color:#15803D;">Impresses Mom & Dad! (+7 Kindness, +6 Happiness & Ungrounded!)</div>
+          </div>
+          <span class="conseq-tag conseq-good">Clean & Unground ➜</span>
+        </button>
+        <button class="choice-btn" onclick="closeModal(); World2D.openStationView('desk');">
+          <span style="font-size:1.4rem;">💻</span>
+          <div style="flex:1;">
+            <strong>3: Go Study or Draw at Your Bedroom Desk</strong>
+            <div style="font-size:0.76rem;color:#0369A1;">Finishing a study or drawing session at your Desk lifts your grounding!</div>
+          </div>
+          <span class="conseq-tag conseq-good">Open Desk ➜</span>
+        </button>
+        <button class="choice-btn" onclick="closeModal(); World2D.openDialogueWith('mom', 'answer');">
+          <span style="font-size:1.4rem;">❗💬</span>
+          <div style="flex:1;">
+            <strong>4: Talk Directly to Mom in Your Bedroom</strong>
+            <div style="font-size:0.76rem;color:#6C757D;">Hear what Mom has to say and choose your response!</div>
+          </div>
+          <span class="conseq-tag">Talk to Mom ➜</span>
+        </button>
+      </div>
+    `;
+    modal.classList.remove('hidden');
   },
 
   openDoorPlacesModal(ev) {
     if (ev) ev.stopPropagation();
     if (!gameState) return;
+    if (gameState.isGrounded && gameState.groundedDays > 0) {
+      this.openGroundedDoorModal();
+      return;
+    }
     SoundFX.pop();
     const places = getActiveWorldPlaces(gameState);
     const modal = document.getElementById('event-modal');
@@ -2957,6 +5752,10 @@ const World2D = {
 
   enterRoom(roomId, openModalImmediately = false) {
     if (!gameState) return;
+    if (roomId !== 'my-room' && gameState.isGrounded && gameState.groundedDays > 0) {
+      this.openGroundedDoorModal();
+      return;
+    }
     if (roomId !== 'my-room') {
       const places = getActiveWorldPlaces(gameState);
       const place = places.find(p => p.id === roomId);
@@ -3014,8 +5813,11 @@ const World2D = {
     }
     const places = getActiveWorldPlaces(gameState);
     let homeZone = 'family-home';
-    if (gameState.livingWith === 'best-friend') homeZone = 'best-friend-home';
-    else if (gameState.livingWith === 'moved-out-16') {
+    if (gameState.homeId && gameState.homeId !== 'family-room' && places.some(p => p.id === gameState.homeId)) {
+      homeZone = gameState.homeId;
+    } else if (gameState.livingWith === 'best-friend') {
+      homeZone = 'best-friend-home';
+    } else if (gameState.livingWith === 'moved-out-16') {
       const hasLoft = places.find(p => p.id === 'starter-loft');
       homeZone = hasLoft ? 'starter-loft' : 'mall';
     }
@@ -3223,48 +6025,78 @@ const World2D = {
       this.targetY = Math.max(8, Math.min(92, npc.y + 2));
     }
 
-    this.openDialogueWith(npc.id);
+    // If this NPC has ❗💬 (they want to talk to you), open their question ('answer' mode)
+    const defaultMode = this.doesNpcWantToTalk(npc.id) ? 'answer' : 'answer';
+    this.openDialogueWith(npc.id, defaultMode);
   },
 
   renderDialogueOverlayHTML() {
     if (!this.activeDialogue || !gameState) return '';
     const dlg = this.activeDialogue;
+    const isAsk = dlg.mode === 'ask';
+    const shortName = dlg.npcId === 'mom' ? 'Mom' : (dlg.npcId === 'dad' ? 'Dad' : dlg.npcName.split(' ')[0]);
+    const options = (dlg.topic && dlg.topic.options) || [];
+    const keyNums = options.map((_, i) => i + 1).join(' / ');
 
     return `
       <div class="world-dialogue-overlay" onclick="event.stopPropagation()">
         <div class="dialogue-top-header">
-          <span>💬 Talking with <strong>${dlg.npcName}</strong> (Click 1, 2, or 3 — or press 1 / 2 / 3!)</span>
-          <button type="button" class="dialogue-close-x" onclick="World2D.closeDialogue()">⬅️ Out ✖</button>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <span>💬 <strong>${dlg.npcName}</strong></span>
+            <button type="button" class="dialogue-mode-tab ${!isAsk ? 'active-mode-tab' : ''}" onclick="World2D.switchDialogueMode('answer')">
+              💬 Answer ${shortName}
+            </button>
+            <button type="button" class="dialogue-mode-tab ${isAsk ? 'active-mode-tab' : ''}" onclick="World2D.switchDialogueMode('ask')">
+              🙋 Ask ${shortName} a Question
+            </button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            ${!dlg.resolved ? `
+              <button type="button" class="dialogue-close-x" style="background:#3B82F6;" onclick="World2D.nextDialogueTopic()">
+                🔄 ${isAsk ? 'More Questions' : 'Next Question'}
+              </button>
+            ` : ''}
+            <button type="button" class="dialogue-close-x" onclick="World2D.closeDialogue()">⬅️ Out ✖</button>
+          </div>
         </div>
         <div class="dialogue-body-row">
           <div class="dialogue-speaker-avatar">
-            ${renderAvatarSVG(dlg.npcAvatar, dlg.npcAge, 50)}
+            ${renderAvatarSVG(isAsk ? gameState.avatar : dlg.npcAvatar, isAsk ? gameState.age : dlg.npcAge, 50)}
           </div>
           <div class="dialogue-speech-content">
-            <div class="dialogue-npc-line">${dlg.topic.prompt}</div>
+            <div class="dialogue-npc-line">${dlg.topic.prompt} <small style="font-weight:600;color:#64748B;">(Click or press ${keyNums})</small></div>
             ${dlg.resolved ? `
               <div class="dialogue-player-reply-tag">🗣️ ${gameState.name}: "${dlg.playerChoiceText}"</div>
               <div class="dialogue-npc-followup">${dlg.npcReplyText}</div>
               <div class="dialogue-choices-row" style="margin-top:6px;">
                 <button type="button" class="dialogue-choice-pill choice-1" onclick="World2D.nextDialogueTopic()">
-                  💬 Talk Again
+                  💬 ${isAsk ? 'Ask Another Question' : 'Next Question'}
                 </button>
-                <button type="button" class="dialogue-choice-pill choice-3" onclick="World2D.closeDialogue()">
+                <button type="button" class="dialogue-choice-pill choice-4" onclick="World2D.switchDialogueMode('${isAsk ? 'answer' : 'ask'}')">
+                  ${isAsk ? `💬 Let ${shortName} Ask Me` : `🙋 Ask ${shortName} a Question`}
+                </button>
+                <button type="button" class="dialogue-choice-pill choice-5" onclick="World2D.closeDialogue()">
                   ✓ Done Talking
                 </button>
               </div>
             ` : `
               <div class="dialogue-choices-row">
-                <button type="button" class="dialogue-choice-pill choice-1" onclick="World2D.selectDialogueOption(1)">
-                  <strong>1:</strong> Yay! 🎉
-                </button>
-                <button type="button" class="dialogue-choice-pill choice-2" onclick="World2D.selectDialogueOption(2)">
-                  <strong>2:</strong> Wow! 🤩
-                </button>
-                <button type="button" class="dialogue-choice-pill choice-3" onclick="World2D.selectDialogueOption(3)">
-                  <strong>3:</strong> No thank you 🙏
-                </button>
+                ${options.map((opt, idx) => {
+                  const num = idx + 1;
+                  const styleClass = opt.isDecline ? 'choice-5' : `choice-${Math.min(4, num)}`;
+                  return `
+                    <button type="button" class="dialogue-choice-pill ${styleClass}" onclick="World2D.selectDialogueOption(${num})">
+                      <strong>${num}:</strong> ${isAsk ? `Ask: ${opt.label}` : opt.label}
+                    </button>
+                  `;
+                }).join('')}
               </div>
+              <form class="dialogue-custom-ask-form" onsubmit="World2D.submitCustomAskQuestion(event)">
+                <input id="custom-dialogue-ask-input" type="text" class="dialogue-custom-ask-input"
+                  placeholder="✍️ Or type your own question to ask ${shortName} (e.g. Can we get ice cream? Can I have $15?)"
+                  maxlength="90" />
+                <button type="submit" class="dialogue-custom-ask-btn">🙋 Ask ${shortName}!</button>
+              </form>
             `}
           </div>
         </div>
@@ -3433,16 +6265,18 @@ const World2D = {
       const roomNpcsHtml = roomNpcs.map((npc, idx) => {
         const rx = npcPositions[idx % npcPositions.length];
         npc.roomX = rx;
+        const wantsToTalk = this.doesNpcWantToTalk(npc.id);
         return `
           <div class="world-avatar-token npc-token room-standing-token"
             style="left:${rx}%; top:54%;"
-            title="Click to talk with ${npc.name}"
+            title="${wantsToTalk ? `${npc.name} wants to talk to you! (❗💬)` : `Click to talk with ${npc.name} (💬)`}"
             onclick="World2D.clickNpcAvatar('${npc.id}', event)">
-            <div class="avatar-mini-bubble" style="opacity:1;">💬 ${npc.id === 'mom' && this.currentRoomId === 'my-room' ? 'Click to Talk to Mom!' : npc.quote}</div>
+            <div class="npc-head-talk-badge ${wantsToTalk ? 'wants-to-talk' : 'normal-talk'}">${wantsToTalk ? '❗💬' : '💬'}</div>
+            <div class="avatar-mini-bubble">${npc.quote}</div>
             <div class="token-fullbody-wrap">
               ${renderAvatarSVG(npc.avatar, npc.renderAge, 52)}
             </div>
-            <span class="token-name-tag ${npc.isFamily ? 'family-tag' : 'friend-tag'}">💬 ${npc.name}</span>
+            <span class="token-name-tag ${npc.isFamily ? 'family-tag' : 'friend-tag'}">${wantsToTalk ? '❗💬' : '💬'} ${npc.name}</span>
           </div>
         `;
       }).join('');
@@ -3494,10 +6328,10 @@ const World2D = {
         <div class="room-arched-door"
           style="left:${sceneConfig.doorX || 54}%;"
           onclick="World2D.openDoorPlacesModal(event)"
-          title="Click Door to Go to Other Places!">
+          title="${gameState.isGrounded && gameState.groundedDays > 0 ? '🚫 You are Grounded! Click to Apologize or Clean Room' : 'Click Door to Go to Other Places!'}">
           <div class="door-inner-arch"></div>
           <div class="door-knob"></div>
-          <span class="door-hover-label">🚪 Places Door</span>
+          <span class="door-hover-label">${gameState.isGrounded && gameState.groundedDays > 0 ? '🚫 Grounded!' : '🚪 Places Door'}</span>
         </div>
 
         <!-- Custom Interactive Furniture for This Specific Place! -->
@@ -3505,6 +6339,13 @@ const World2D = {
 
         ${roomNpcsHtml}
         ${roomPlayerHtml}
+        ${gameState.isGrounded && gameState.groundedDays > 0 ? `
+          <div class="live-action-top-banner" style="background:rgba(185,28,28,0.95);color:#FFFFFF;border:2px solid #FCA5A5;display:flex;align-items:center;gap:8px;padding:5px 12px;" onclick="event.stopPropagation()">
+            <span>🚫 <strong>GROUNDED IN ROOM (${gameState.groundedDays}d left)!</strong></span>
+            <button type="button" class="dialogue-close-x" style="background:#16A34A;" onclick="apologizeToUnGround()">🙏 Apologize to Mom</button>
+            <button type="button" class="dialogue-close-x" style="background:#0284C7;" onclick="cleanRoomToUnGround()">🧹 Clean Room</button>
+          </div>
+        ` : ''}
         ${this.liveAction ? `<div class="live-action-top-banner">${this.liveAction.label}</div>` : ''}
         ${this.renderDialogueOverlayHTML()}
       `;
@@ -3552,10 +6393,12 @@ const World2D = {
     const placesHtml = places.map(p => {
       const unlocked = !p.isMystery && gameState.age >= p.unlockAge;
       const isQuestTarget = unlocked && questPlaceIds.has(p.id);
+      const hasUpgradedHome = gameState.homeId && gameState.homeId !== 'family-room';
       const isCurrentHome =
-        (gameState.livingWith === 'family' && p.id === 'family-home') ||
-        (gameState.livingWith === 'moved-out-16' && p.id === 'starter-loft') ||
-        (gameState.livingWith === 'best-friend' && p.id === 'best-friend-home');
+        (hasUpgradedHome && p.id === gameState.homeId) ||
+        (!hasUpgradedHome && gameState.livingWith === 'family' && p.id === 'family-home') ||
+        (!hasUpgradedHome && gameState.livingWith === 'moved-out-16' && p.id === 'starter-loft') ||
+        (!hasUpgradedHome && gameState.livingWith === 'best-friend' && p.id === 'best-friend-home');
 
       let displayTitle = p.name;
       if (p.id === 'best-friend-home' && bestFriend) {
@@ -3565,14 +6408,15 @@ const World2D = {
       const nightBg = unlocked && isNight ? '#2B3054' : (unlocked ? p.bg : '#E9ECEF');
       const nightBorder = unlocked && isNight ? '#FFD166' : (unlocked ? p.border : '#ADB5BD');
       const roofExtraClass = unlocked && p.roofStyle === 'awning' ? 'awning-roof-bar' : '';
+      const enterTargetId = p.id === 'family-home' ? 'my-room' : p.id;
 
       return `
-        <div class="world-place-box ${unlocked ? 'unlocked' : 'locked'} ${isCurrentHome ? 'current-home-glow' : ''} ${unlocked && isNight ? 'night-lit-building' : ''}"
+        <div class="world-place-box ${unlocked ? 'unlocked' : 'locked'} ${(isCurrentHome || p.isPlayerHome) ? 'current-home-glow' : ''} ${unlocked && isNight ? 'night-lit-building' : ''}"
           style="left:${p.x}%; top:${p.y}%; width:${p.w}%; height:${p.h}%; background:${nightBg}; border-color:${nightBorder}"
           onclick="World2D.walkToPlace('${p.id}')">
           <div class="place-roof-bar ${roofExtraClass}" style="background:${unlocked ? p.roof : '#868E96'}">
             <span>${p.icon} ${displayTitle}</span>
-            ${isQuestTarget ? `<span class="home-star-tag" style="background:#A855F7;color:#FFF;" title="Active Quest Here!">🎯 Quest</span>` : (isCurrentHome ? `<span class="home-star-tag" onclick="event.stopPropagation(); World2D.enterRoom('my-room');" title="Click to Enter My Room!">🛏️ Room</span>` : '')}
+            ${isQuestTarget ? `<span class="home-star-tag" style="background:#A855F7;color:#FFF;" title="Active Quest Here!">🎯 Quest</span>` : ((isCurrentHome || p.isPlayerHome) ? `<span class="home-star-tag" onclick="event.stopPropagation(); World2D.enterRoom('${enterTargetId}');" title="Click to Enter Your Home!">🏠 Home</span>` : '')}
           </div>
           <div class="place-interior">
             ${unlocked ? `
@@ -3598,16 +6442,18 @@ const World2D = {
     const npcsHtml = this.npcs.map(npc => {
       const place = places.find(p => p.id === npc.placeId);
       if (place && (place.isMystery || gameState.age < place.unlockAge)) return '';
+      const wantsToTalk = this.doesNpcWantToTalk(npc.id);
       return `
         <div class="world-avatar-token npc-token"
           style="left:${npc.x}%; top:${npc.y}%;"
-          title="Click to interact with ${npc.name}"
+          title="${wantsToTalk ? `${npc.name} wants to talk to you! (❗💬)` : `Click to talk with ${npc.name} (💬)`}"
           onclick="World2D.clickNpcAvatar('${npc.id}', event)">
+          <div class="npc-head-talk-badge ${wantsToTalk ? 'wants-to-talk' : 'normal-talk'}">${wantsToTalk ? '❗💬' : '💬'}</div>
           <div class="avatar-mini-bubble">${npc.quote}</div>
           <div class="token-fullbody-wrap">
             ${renderAvatarSVG(npc.avatar, npc.renderAge, 40)}
           </div>
-          <span class="token-name-tag ${npc.isFamily ? 'family-tag' : 'friend-tag'}">${npc.name}</span>
+          <span class="token-name-tag ${npc.isFamily ? 'family-tag' : 'friend-tag'}">${wantsToTalk ? '❗💬' : '💬'} ${npc.name}</span>
         </div>
       `;
     }).join('');
@@ -3662,8 +6508,20 @@ const World2D = {
           <small>${currentPlace ? currentPlace.desc : 'Click any furniture item in your room, talk to Mom, or click the Grey Door to travel!'}</small>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="zone-action-btn" style="background:linear-gradient(135deg,#F59E0B,#D97706);" onclick="World2D.openDialogueWith('mom')">
-            💬 Talk to Mom
+          <button class="zone-action-btn" style="background:linear-gradient(135deg,#F59E0B,#D97706);" onclick="World2D.openDialogueWith('mom', 'answer')">
+            ${this.doesNpcWantToTalk('mom') ? '❗💬' : '💬'} Talk to Mom
+          </button>
+          <button class="zone-action-btn" style="background:linear-gradient(135deg,#8B5CF6,#6D28D9);" onclick="World2D.openDialogueWith('mom', 'ask')">
+            🙋 Ask Mom
+          </button>
+          <button class="zone-action-btn" style="background:linear-gradient(135deg,#EF4444,#DC2626);" onclick="World2D.openStationView('bag')">
+            🎒 Pack Bag (${Array.isArray(gameState.packedBag) ? gameState.packedBag.length : 3}/6)
+          </button>
+          <button class="zone-action-btn" style="background:linear-gradient(135deg,#0284C7,#0369A1);" onclick="World2D.openStationView('schedule')">
+            📅 Schedule
+          </button>
+          <button class="zone-action-btn" style="background:linear-gradient(135deg,#7C3AED,#4F46E5);" onclick="World2D.openStationView('decisions')">
+            🧭 Decisions
           </button>
           ${this.currentRoomId !== 'my-room' ? `
             <button class="zone-action-btn" onclick="triggerPlaceAction('${this.currentRoomId}')">

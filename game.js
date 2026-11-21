@@ -1807,6 +1807,15 @@ function advanceDays(numDays = 1, fromSleep = false) {
 
   let reachedBirthday = false;
   for (let i = 0; i < numDays; i++) {
+    if (gameState.isGrounded && gameState.groundedDays > 0) {
+      gameState.groundedDays = Math.max(0, gameState.groundedDays - 1);
+      if (gameState.groundedDays === 0) {
+        gameState.isGrounded = false;
+        gameState.groundedReason = '';
+        addCurrentYearLog('🎉 Grounding Over: You served your grounded days and are free to go out again!');
+        showToast('🎉 You are no longer Grounded! You can visit places again!');
+      }
+    }
     gameState.day += 1;
     if (gameState.day > 7) {
       gameState.day = 1;
@@ -2328,19 +2337,47 @@ function adoptPet(petId) {
 
 function upgradeHome(homeId) {
   const home = GAME_DATA.homes.find(h => h.id === homeId);
-  if (!home || gameState.homeId === home.id) return;
-  if (gameState.money < home.cost) {
-    showToast(`You need $${home.cost} to move into the ${home.name}!`);
+  if (!home) return;
+  if (!Array.isArray(gameState.ownedHomes)) {
+    gameState.ownedHomes = ['family-room'];
+  }
+  const alreadyOwned = gameState.ownedHomes.includes(home.id) || home.id === 'family-room';
+
+  if (gameState.homeId === home.id) {
+    // Already current home — enter it or show it on the 2D Map!
+    if (typeof World2D !== 'undefined') {
+      const roomTarget = home.id === 'family-room' ? 'my-room' : home.id;
+      World2D.enterRoom(roomTarget);
+    }
     return;
   }
 
-  gameState.money -= home.cost;
+  if (!alreadyOwned) {
+    if (gameState.money < home.cost) {
+      showToast(`🪙 You need $${home.cost} to buy the ${home.name} (You have $${gameState.money})!`);
+      return;
+    }
+    gameState.money -= home.cost;
+    gameState.ownedHomes.push(home.id);
+    gameState.stats.happiness = clampStat(gameState.stats.happiness + 15);
+    addCurrentYearLog(`${home.icon} Bought and moved into your new ${home.name}! It is now on your 2D Town Map!`);
+    addScrapbookMoment(`Moved into ${home.name} ${home.icon}`, `Got the keys to your ${home.name} at age ${gameState.age}!`);
+  } else {
+    addCurrentYearLog(`${home.icon} Moved back into your ${home.name}!`);
+  }
+
   gameState.homeId = home.id;
-  gameState.stats.happiness = clampStat(gameState.stats.happiness + 15);
   SoundFX.milestone();
-  addCurrentYearLog(`${home.icon} Moved into your new ${home.name}! All your friends came over to help unpack!`);
-  addScrapbookMoment(`Moved into ${home.name} ${home.icon}`, `Got the keys to your ${home.name} at age ${gameState.age}!`);
-  showToast(`Welcome to your new ${home.name}! 🏡`);
+  showToast(`🏡 Welcome to your ${home.name}! Added to your 2D Town Map & Places Strip!`);
+  if (typeof World2D !== 'undefined') {
+    const roomTarget = home.id === 'family-room' ? 'my-room' : home.id;
+    World2D.activeZoneId = home.id === 'family-room' ? 'family-home' : home.id;
+    if (World2D.viewMode === 'town') {
+      World2D.placePlayerAtCurrentHome();
+    } else {
+      World2D.currentRoomId = roomTarget;
+    }
+  }
   saveGame();
   renderAll();
 }
@@ -3249,6 +3286,33 @@ const PLACE_CONSEQUENCE_EVENTS = {
         effects: { energyCost: 30, health: -8, friendBoost: 10, sickChance: 0.45 }
       }
     ]
+  },
+  'gym': {
+    title: '💪 At Powerhouse Fitness Gym',
+    prompt: 'Treadmills, heavy barbells, boxing bags, and a protein smoothie bar fill Powerhouse Gym! What is your workout?',
+    options: [
+      {
+        label: '🏃🏋️ Complete a full Cardio & Strength Workout Circuit',
+        tag: 'Fitness Choice 💚 (-14% ⚡)',
+        tagClass: 'conseq-good',
+        consequence: 'CONSEQUENCE: Awesome workout! You feel super strong and energized! (+14 Athletics, +12 Health, +10 Happiness, -14% Energy)',
+        effects: { energyCost: 14, health: 12, happiness: 10, skill: ['athletics', 14] }
+      },
+      {
+        label: '🥤🤝 Spot your friends & share Berry Protein Smoothies ($4)',
+        tag: 'Gym Buddy 🌟 (+10% ⚡)',
+        tagClass: 'conseq-good',
+        consequence: 'CONSEQUENCE: Everyone cheered each other on and drank protein shakes! (+10% Eat Energy, +10 Kindness, +12 All Friends Bond, +10 Athletics, -$4)',
+        effects: { eat: true, money: -4, kindness: 10, allFriendsBoost: 12, skill: ['athletics', 10] }
+      },
+      {
+        label: '🏋️💥 Slam the 500-lb Mega Barbell onto the floor to show off!',
+        tag: 'Scolded & Grounded ⚠️',
+        tagClass: 'conseq-risky',
+        consequence: 'CONSEQUENCE: CLANG!! The weights crashed across the gym floor and the Gym Coach scolded you and called Mom & Dad (-20% Energy, -8 Kindness, -6 Health)!',
+        effects: { energyCost: 20, kindness: -8, health: -6 }
+      }
+    ]
   }
 };
 
@@ -3679,6 +3743,67 @@ function resolvePlaceConsequence(placeId, optionIdx) {
 
   // Advance 1 day on the 10-Week Birthday Calendar when you do a place event!
   advanceDays(1, true);
+
+  // If this was a Risky / Trouble choice where you got scolded, you get GROUNDED in your room!
+  if (opt.tagClass === 'conseq-risky') {
+    groundPlayer(opt.consequence, 2);
+  }
+}
+
+function groundPlayer(reason = 'You got scolded for misbehaving!', days = 2) {
+  if (!gameState) return;
+  gameState.isGrounded = true;
+  gameState.groundedDays = days;
+  gameState.groundedReason = reason;
+
+  SoundFX.pop();
+  addCurrentYearLog(`🚫 GROUNDED (${days} Days): Mom & Dad scolded you and grounded you to your bedroom! (${reason})`);
+  showToast(`🚫 GROUNDED for ${days} Days! Sent straight to your bedroom! Apologize to Mom, Clean Your Room, or Study to get ungrounded!`);
+
+  if (typeof World2D !== 'undefined') {
+    if (World2D.answeredUrgentNpcs) {
+      delete World2D.answeredUrgentNpcs['mom'];
+    }
+    World2D.stationView = null;
+    World2D.liveAction = null;
+    World2D.viewMode = 'room';
+    World2D.currentRoomId = 'my-room';
+    World2D.playerX = 28;
+    World2D.playerY = 56;
+    World2D.targetX = 28;
+    World2D.targetY = 56;
+  }
+
+  saveGame();
+  renderAll();
+}
+
+function apologizeToUnGround() {
+  if (!gameState) return;
+  gameState.isGrounded = false;
+  gameState.groundedDays = 0;
+  gameState.groundedReason = '';
+  gameState.stats.kindness = clampStat(gameState.stats.kindness + 8);
+  SoundFX.milestone();
+  addCurrentYearLog('🙏 Apologized sincerely to Mom & Dad! They forgave you, gave you a hug, and lifted your grounding! (+8 Kindness)');
+  showToast('🙏 Mom forgave you! You are no longer Grounded! (+8 Kindness 💛)');
+  saveGame();
+  renderAll();
+}
+
+function cleanRoomToUnGround() {
+  if (!gameState) return;
+  if (!spendEnergy(10)) return;
+  gameState.isGrounded = false;
+  gameState.groundedDays = 0;
+  gameState.groundedReason = '';
+  gameState.stats.kindness = clampStat(gameState.stats.kindness + 7);
+  gameState.stats.happiness = clampStat(gameState.stats.happiness + 6);
+  SoundFX.milestone();
+  addCurrentYearLog('🧹 Cleaned up your whole bedroom and did your chores! Mom & Dad were impressed and ungrounded you! (+7 Kindness, +6 Happiness)');
+  showToast('🧹 Room spotless! Mom & Dad ungrounded you! (+7 Kindness, +6 Happiness)');
+  saveGame();
+  renderAll();
 }
 
 function renderLeftProfile() {
@@ -3690,7 +3815,7 @@ function renderLeftProfile() {
   document.getElementById('player-town-line').textContent = `${gameState.hometown.icon} ${gameState.hometown.name} • ${gameState.trait.icon} ${gameState.trait.name}`;
   document.getElementById('player-money-badge').textContent = `$${gameState.money}`;
 
-  // Status badges (Home, Club, Career, Pets)
+  // Status badges (Home, Club, Career, Pets, Grounded)
   const homeObj = GAME_DATA.homes.find(h => h.id === gameState.homeId) || GAME_DATA.homes[0];
   let roleText = 'Growing & Exploring 🌱';
   if (gameState.age >= 5 && gameState.age <= 10) roleText = 'Elementary School Student 🎒';
@@ -3706,7 +3831,9 @@ function renderLeftProfile() {
     roleText = 'Retired Legend 🌅';
   }
 
+  const isGrounded = !!(gameState.isGrounded && gameState.groundedDays > 0);
   document.getElementById('player-status-summary').innerHTML = `
+    ${isGrounded ? `<div class="mini-status-pill" style="background:#FEE2E2;color:#B91C1C;border:1.5px solid #EF4444;font-weight:900;">🚫 Grounded (${gameState.groundedDays}d left)</div>` : ''}
     <div class="mini-status-pill">${roleText}</div>
     <div class="mini-status-pill">${homeObj.icon} ${homeObj.name}</div>
     ${gameState.pets.length > 0 ? `<div class="mini-status-pill">🐾 ${gameState.pets.length} Pet${gameState.pets.length > 1 ? 's' : ''}</div>` : ''}
@@ -3992,7 +4119,8 @@ function renderRightPanel() {
               <strong style="font-size:0.84rem;">👩 Mom</strong>
               <div style="font-size:0.72rem;color:#B45309;">Parent • Warm Hugs</div>
               <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
-                <button class="friend-btn" style="padding:3px 7px;" onclick="World2D.openDialogueWith('mom')">💬 Talk</button>
+                <button class="friend-btn" style="padding:3px 7px;" onclick="World2D.openDialogueWith('mom', 'answer')">${typeof World2D !== 'undefined' && World2D.doesNpcWantToTalk('mom') ? '❗💬' : '💬'} Talk</button>
+                <button class="friend-btn" style="padding:3px 7px;background:#EDE9FE;color:#6D28D9;border-color:#C4B5FD;" onclick="World2D.openDialogueWith('mom', 'ask')">🙋 Ask</button>
                 <button class="friend-btn" style="padding:3px 7px;" onclick="interactWithFamily('Mom')">💛 Hug</button>
               </div>
             </div>
@@ -4005,7 +4133,8 @@ function renderRightPanel() {
               <strong style="font-size:0.84rem;">👨 Dad</strong>
               <div style="font-size:0.72rem;color:#1D3557;">Parent • Car Rides</div>
               <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
-                <button class="friend-btn" style="padding:3px 7px;" onclick="World2D.openDialogueWith('dad')">💬 Talk</button>
+                <button class="friend-btn" style="padding:3px 7px;" onclick="World2D.openDialogueWith('dad', 'answer')">${typeof World2D !== 'undefined' && World2D.doesNpcWantToTalk('dad') ? '❗💬' : '💬'} Talk</button>
+                <button class="friend-btn" style="padding:3px 7px;background:#EDE9FE;color:#6D28D9;border-color:#C4B5FD;" onclick="World2D.openDialogueWith('dad', 'ask')">🙋 Ask</button>
                 <button class="friend-btn" style="padding:3px 7px;" onclick="triggerPlaceAction('family-car')">🚗 Ride</button>
               </div>
             </div>
@@ -4022,7 +4151,8 @@ function renderRightPanel() {
                   <strong style="font-size:0.84rem;">${sIcon} ${sib.name}</strong>
                   <div style="font-size:0.72rem;color:#D9532F;">${sib.relation} (Age ${sibAge})</div>
                   <div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">
-                    <button class="friend-btn" style="padding:3px 7px;" onclick="World2D.openDialogueWith('${sib.id}')">💬 Talk</button>
+                    <button class="friend-btn" style="padding:3px 7px;" onclick="World2D.openDialogueWith('${sib.id}', 'answer')">${typeof World2D !== 'undefined' && World2D.doesNpcWantToTalk(sib.id) ? '❗💬' : '💬'} Talk</button>
+                    <button class="friend-btn" style="padding:3px 7px;background:#EDE9FE;color:#6D28D9;border-color:#C4B5FD;" onclick="World2D.openDialogueWith('${sib.id}', 'ask')">🙋 Ask</button>
                     <button class="friend-btn" style="padding:3px 7px;" onclick="hangOutWithSibling('${sib.id}')">🎈 Play</button>
                   </div>
                 </div>
@@ -4070,13 +4200,184 @@ function renderRightPanel() {
                 </div>
               </div>
               <div class="friend-actions">
-                <button class="friend-btn" onclick="World2D.openDialogueWith('${f.id}')">💬 Talk (1/2/3)</button>
+                <button class="friend-btn" onclick="World2D.openDialogueWith('${f.id}', 'answer')">${typeof World2D !== 'undefined' && World2D.doesNpcWantToTalk(f.id) ? '❗💬' : '💬'} Talk</button>
+                <button class="friend-btn" style="background:#EDE9FE;color:#6D28D9;border-color:#C4B5FD;" onclick="World2D.openDialogueWith('${f.id}', 'ask')">🙋 Ask</button>
                 <button class="friend-btn" onclick="hangOutWithFriend('${f.id}')">🎈 Hang Out (-${getEnergyCost(15)}% ⚡)</button>
                 <button class="friend-btn gift" onclick="openGiftModal('${f.id}')">🎁 Give Gift ($)</button>
               </div>
             </div>
           `;
         }).join('')}
+      </div>
+    `;
+  } else if (tab === 'schedule') {
+    if (typeof World2D !== 'undefined' && typeof World2D.ensureScheduleInitialized === 'function') {
+      World2D.ensureScheduleInitialized();
+    }
+    const slots = typeof DAILY_SCHEDULE_SLOTS !== 'undefined' ? DAILY_SCHEDULE_SLOTS : [];
+    const sched = gameState.dailySchedule || {};
+    const doneSlots = gameState.completedScheduleSlots || {};
+
+    container.innerHTML = `
+      <div class="panel-top-banner">
+        <div>
+          <h3>📅 ${gameState.name}'s Daily Schedule</h3>
+          <p>Plan your Morning, Afternoon, Evening & Night activities, or run your whole day at once!</p>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="action-pill-btn highlight" onclick="World2D.runFullDailySchedule()">
+            ✨ Run Full Day (+$10 🪙)
+          </button>
+          <button class="action-pill-btn" onclick="World2D.openStationView('schedule')">
+            🖥️ Open in 2D Screen
+          </button>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <button type="button" class="mini-style-btn" style="margin:0;" onclick="World2D.applySchedulePreset('school')">🏫 School & Study Preset</button>
+        <button type="button" class="mini-style-btn" style="margin:0;" onclick="World2D.applySchedulePreset('fun')">🍦 Fun & Bestie Preset</button>
+        <button type="button" class="mini-style-btn" style="margin:0;" onclick="World2D.applySchedulePreset('allowance')">🪙 Chores & Allowance Preset</button>
+      </div>
+
+      <div style="max-height:520px;overflow-y:auto;padding-right:4px;display:flex;flex-direction:column;gap:10px;">
+        ${slots.map(slot => {
+          const activeOptId = sched[slot.slotKey] || slot.options[0].id;
+          const activeOpt = slot.options.find(o => o.id === activeOptId) || slot.options[0];
+          const isDone = !!doneSlots[slot.slotKey];
+          return `
+            <div class="friend-card" style="background:${slot.bg};border:2px solid ${isDone ? '#16A34A' : slot.color};padding:10px 12px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <strong style="font-size:0.88rem;color:#1E293B;">${slot.timeLabel}</strong>
+                  ${isDone ? `<span class="conseq-tag conseq-good">✓ Completed</span>` : ''}
+                </div>
+                <button type="button" class="energy-btn eat-btn" style="padding:4px 10px;font-size:0.74rem;"
+                  onclick="World2D.executeScheduleSlot('${slot.slotKey}')">
+                  ▶ Do Now
+                </button>
+              </div>
+              <div style="background:#FFFFFF;border:1.5px solid ${slot.color};border-radius:10px;padding:6px 10px;margin-bottom:8px;">
+                <strong style="font-size:0.82rem;color:#0F172A;display:block;">Planned: ${activeOpt.name}</strong>
+                <small style="font-size:0.73rem;color:#059669;font-weight:700;">${activeOpt.desc}</small>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+                ${slot.options.map(opt => {
+                  const sel = opt.id === activeOpt.id;
+                  return `
+                    <button type="button"
+                      style="text-align:left;font-size:0.72rem;font-weight:800;padding:5px 8px;border-radius:8px;cursor:pointer;border:1.5px solid ${sel ? slot.color : '#CBD5E1'};background:${sel ? '#FFFFFF' : 'rgba(255,255,255,0.7)'};color:${sel ? '#0F172A' : '#475569'};"
+                      onclick="World2D.setScheduleSlotActivity('${slot.slotKey}', '${opt.id}')">
+                      ${sel ? '✓ ' : ''}${opt.name}
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  } else if (tab === 'decisions') {
+    if (typeof World2D !== 'undefined' && typeof World2D.ensureDecisionsInitialized === 'function') {
+      World2D.ensureDecisionsInitialized();
+    }
+    const scenarios = typeof DECISION_SCENARIOS !== 'undefined' ? DECISION_SCENARIOS : [];
+    const lifeRules = typeof LIFE_RULE_DECISIONS !== 'undefined' ? LIFE_RULE_DECISIONS : [];
+    const currentScenario = (typeof World2D !== 'undefined' && typeof World2D.getCurrentDecisionScenario === 'function')
+      ? World2D.getCurrentDecisionScenario()
+      : scenarios[0];
+    const rulesState = gameState.lifeRules || {};
+
+    container.innerHTML = `
+      <div class="panel-top-banner">
+        <div>
+          <h3>🧭 Decisions Center (🏆 ${gameState.decisionsMadeCount || 0} Chosen)</h3>
+          <p>Choose what to do in story dilemmas, family votes, and your personal daily rules!</p>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="action-pill-btn highlight" onclick="World2D.openStationView('decisions')">
+            🖥️ Open in 2D Screen
+          </button>
+          <button class="action-pill-btn" onclick="World2D.nextDecisionScenario()">
+            🔄 Next Dilemma
+          </button>
+        </div>
+      </div>
+
+      <div style="max-height:560px;overflow-y:auto;padding-right:4px;">
+        ${currentScenario ? `
+          <div class="sub-section">
+            <h4>🌟 Featured Decision Dilemma</h4>
+            <div class="friend-card" style="border:2px solid #7C3AED;background:#FAF5FF;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">
+                <strong style="font-size:0.92rem;color:#4C1D95;">${currentScenario.title}</strong>
+                <span class="conseq-tag" style="background:#EDE9FE;color:#6D28D9;border:1px solid #C4B5FD;">${currentScenario.badge}</span>
+              </div>
+              <p style="font-size:0.8rem;color:#334155;margin-bottom:8px;">${currentScenario.prompt}</p>
+              <div style="display:flex;flex-direction:column;gap:6px;">
+                ${currentScenario.choices.map((ch, idx) => `
+                  <button type="button" class="choice-btn" style="padding:8px 10px;"
+                    onclick="World2D.makeScenarioDecision('${currentScenario.id}', ${idx})">
+                    <div style="flex:1;text-align:left;">
+                      <strong style="font-size:0.8rem;display:block;color:#1E293B;">${ch.label}</strong>
+                      <small style="font-size:0.72rem;color:#059669;font-weight:700;">${ch.sub}</small>
+                    </div>
+                    <span class="choice-arrow">➜</span>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="sub-section">
+          <h4>⚙️ Your Personal Life Rule Decisions</h4>
+          <p class="sub-hint">Click any rule option below to decide your current focus and gain an instant stat boost!</p>
+          <div class="choice-cards-grid">
+            ${lifeRules.map(rule => {
+              const currentVal = rulesState[rule.key] || rule.options[0].id;
+              return `
+                <div class="friend-card" style="padding:10px;">
+                  <strong style="font-size:0.82rem;color:#92400E;display:block;margin-bottom:6px;">${rule.title}</strong>
+                  <div style="display:flex;flex-direction:column;gap:5px;">
+                    ${rule.options.map(opt => {
+                      const active = currentVal === opt.id;
+                      return `
+                        <button type="button"
+                          style="text-align:left;font-size:0.76rem;font-weight:800;padding:6px 10px;border-radius:9px;cursor:pointer;border:1.5px solid ${active ? '#16A34A' : '#E2E8F0'};background:${active ? '#DCFCE7' : '#FFFFFF'};color:${active ? '#166534' : '#334155'};"
+                          onclick="World2D.setLifeRuleDecision('${rule.key}', '${opt.id}')">
+                          ${active ? '✓ Active: ' : ''}${opt.label}
+                        </button>
+                      `;
+                    }).join('')}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="sub-section">
+          <h4>📚 All Story & Town Decision Scenarios (${scenarios.length})</h4>
+          <p class="sub-hint">Pick any scenario below whenever you want to make a choice!</p>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${scenarios.map((sc, sIdx) => `
+              <div class="friend-card" style="padding:10px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <div>
+                    <strong style="font-size:0.84rem;">${sc.title}</strong>
+                    <p style="font-size:0.75rem;color:#64748B;margin-top:2px;">${sc.prompt}</p>
+                  </div>
+                  <button type="button" class="energy-btn sleep-btn" style="white-space:nowrap;"
+                    onclick="gameState.decisionIndex=${sIdx}; World2D.openStationView('decisions'); renderRightPanel();">
+                    🧭 Choose
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
       </div>
     `;
   } else if (tab === 'quests') {
@@ -4170,9 +4471,14 @@ function renderRightPanel() {
           <h3>🎒 ${gameState.name}'s Inventory (${inv.length} Slots)</h3>
           <p>Keep your food, snacks, birthday presents, clothes & gear here!</p>
         </div>
-        <button class="action-pill-btn" onclick="openFoodChoiceModal()">
-          🍽️ Get Food
-        </button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="action-pill-btn highlight" onclick="World2D.openStationView('bag')">
+            🎒 Pack My Bag (${Array.isArray(gameState.packedBag) ? gameState.packedBag.length : 3}/6)
+          </button>
+          <button class="action-pill-btn" onclick="openFoodChoiceModal()">
+            🍽️ Get Food
+          </button>
+        </div>
       </div>
 
       <div class="sub-section">
@@ -4497,19 +4803,46 @@ function renderRightPanel() {
       </div>
     `;
 
+    const ownedHomesSet = new Set([
+      'family-room',
+      ...(gameState.ownedHomes || []),
+      gameState.homeId || 'family-room'
+    ]);
+
     const homesHtml = `
       <div class="sub-section">
-        <h4>🏡 Cozy Homes (${gameState.age < 18 ? 'Unlocks at Age 18+' : 'Upgrade Your Living Space'})</h4>
+        <h4>🏡 Cozy Homes (Appear on Your 2D Town Map & Places Strip!)</h4>
         <div class="choice-cards-grid">
           ${GAME_DATA.homes.map(h => {
             const isCurrent = gameState.homeId === h.id;
-            const canBuy = gameState.age >= 18 && !isCurrent;
+            const isOwned = ownedHomesSet.has(h.id);
+            const roomTarget = h.id === 'family-room' ? 'my-room' : h.id;
             return `
-              <div class="mini-choice-card ${isCurrent ? 'selected' : ''}" onclick="${canBuy ? `upgradeHome('${h.id}')` : ''}">
-                <span>${h.icon}</span>
-                <div>
-                  <strong>${h.name} ${isCurrent ? '(Current Home)' : `($${h.cost})`}</strong>
-                  <small>${h.desc}</small>
+              <div class="mini-choice-card ${isCurrent ? 'selected' : ''}" style="justify-content:space-between;gap:10px;"
+                onclick="upgradeHome('${h.id}')">
+                <div style="display:flex;align-items:center;gap:10px;flex:1;">
+                  <span>${h.icon}</span>
+                  <div>
+                    <strong>${h.name} ${isCurrent ? '(Current Home ⭐)' : (isOwned ? '(Owned ✓)' : `($${h.cost})`)}</strong>
+                    <small>${h.desc}</small>
+                  </div>
+                </div>
+                <div style="display:flex;gap:4px;flex-shrink:0;">
+                  ${isOwned ? `
+                    <button type="button" class="energy-btn eat-btn" style="padding:4px 8px;font-size:0.7rem;"
+                      onclick="event.stopPropagation(); if(!Array.isArray(gameState.ownedHomes)) gameState.ownedHomes=['family-room']; if(!gameState.ownedHomes.includes('${h.id}')) gameState.ownedHomes.push('${h.id}'); gameState.homeId='${h.id}'; World2D.enterRoom('${roomTarget}'); saveGame(); renderAll();">
+                      🚪 Enter
+                    </button>
+                    <button type="button" class="energy-btn sleep-btn" style="padding:4px 8px;font-size:0.7rem;"
+                      onclick="event.stopPropagation(); gameState.homeId='${h.id}'; World2D.switchView('town'); World2D.placePlayerAtCurrentHome(); World2D.renderWorldDOM(); saveGame(); renderAll();">
+                      🗺️ Map
+                    </button>
+                  ` : `
+                    <button type="button" class="energy-btn eat-btn" style="padding:4px 8px;font-size:0.7rem;"
+                      onclick="event.stopPropagation(); upgradeHome('${h.id}')">
+                      🏠 Buy $${h.cost}
+                    </button>
+                  `}
                 </div>
               </div>
             `;

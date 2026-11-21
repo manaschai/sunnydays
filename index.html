@@ -147,6 +147,8 @@
             <div class="world-mode-switcher">
               <button type="button" id="btn-view-room" class="world-mode-btn" onclick="World2D.enterRoom('my-room')">🛏️ My Room</button>
               <button type="button" id="btn-view-town" class="world-mode-btn active" onclick="World2D.switchView('town')">🗺️ Town Map</button>
+              <button type="button" class="world-mode-btn" onclick="World2D.openStationView('schedule')">📅 Schedule</button>
+              <button type="button" class="world-mode-btn" onclick="World2D.openStationView('decisions')">🧭 Decisions</button>
               <button type="button" class="world-mode-btn" onclick="openFurnitureShopModal()">🪑 Furniture</button>
               <button type="button" class="world-mode-btn" onclick="switchTab('quests')">🎯 Quests</button>
               <button type="button" class="world-mode-btn" onclick="switchTab('store')">🛒 Store</button>
@@ -173,6 +175,8 @@
     <aside class="panel-card">
       <nav class="tabs-nav">
         <button class="tab-btn active" data-tab="friends" onclick="switchTab('friends')">🤝 Friends</button>
+        <button class="tab-btn" data-tab="schedule" onclick="switchTab('schedule')">📅 Schedule</button>
+        <button class="tab-btn" data-tab="decisions" onclick="switchTab('decisions')">🧭 Decisions</button>
         <button class="tab-btn" data-tab="quests" onclick="switchTab('quests')">🎯 Quests</button>
         <button class="tab-btn" data-tab="inventory" onclick="switchTab('inventory')">🎒 Inventory</button>
         <button class="tab-btn" data-tab="store" onclick="switchTab('store')">🛒 Store</button>
